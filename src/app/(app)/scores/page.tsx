@@ -219,9 +219,17 @@ export default function ScoresPage() {
     setError(null);
     setWeekResult(null);
 
-    // Calculate ALL players with MLB IDs (active and inactive)
+    // For each MLB player ID, only score the ACTIVE roster entry.
+    // Two-way players (e.g. Ohtani) may have both a DH and SP entry —
+    // only the activated one should be scored.
+    const seenIds = new Set<number>();
     const players = allPlayers
-      .filter((p) => p.mlb_player_id > 0)
+      .filter((p) => p.mlb_player_id > 0 && activePlayers.has(p.id))
+      .filter((p) => {
+        if (seenIds.has(p.mlb_player_id)) return false;
+        seenIds.add(p.mlb_player_id);
+        return true;
+      })
       .map((p) => ({
         mlbPlayerId: p.mlb_player_id,
         position: p.primary_position,
@@ -261,20 +269,26 @@ export default function ScoresPage() {
     setCalculating(false);
   }
 
-  // Build lookup maps
+  // Build lookup maps — active entries take priority over inactive
+  // (two-way players like Ohtani may have both DH and SP roster entries)
   const playerNameMap = new Map<number, string>();
   const playerPosMap = new Map<number, string>();
   const playerIsPitcher = new Map<number, boolean>();
+  const activeMLBIds = new Set<number>();
+
+  // First pass: set from all players
   allPlayers.forEach((p) => {
     playerNameMap.set(p.mlb_player_id, p.mlb_player_name);
     playerPosMap.set(p.mlb_player_id, p.primary_position);
     playerIsPitcher.set(p.mlb_player_id, isPitcherPosition(p));
   });
-
-  // Build set of active MLB IDs from the active roster player IDs
-  const activeMLBIds = new Set<number>();
+  // Second pass: active entries override (so DH Ohtani active beats SP Ohtani inactive)
   allPlayers.forEach((p) => {
-    if (activePlayers.has(p.id)) activeMLBIds.add(p.mlb_player_id);
+    if (activePlayers.has(p.id)) {
+      activeMLBIds.add(p.mlb_player_id);
+      playerPosMap.set(p.mlb_player_id, p.primary_position);
+      playerIsPitcher.set(p.mlb_player_id, isPitcherPosition(p));
+    }
   });
 
   const batterResults = weekResult?.results.filter((r) => !playerIsPitcher.get(r.mlbPlayerId)) || [];
