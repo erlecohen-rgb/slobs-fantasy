@@ -1,0 +1,865 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import { useUser } from "@clerk/nextjs";
+import ReactMarkdown from "react-markdown";
+
+interface RosterPlayer {
+  id: string;
+  mlb_player_id: number;
+  mlb_player_name: string;
+  primary_position: string;
+  is_pitcher: boolean;
+}
+
+interface Team {
+  id: string;
+  name: string;
+  owner_user_id: string;
+  roster_players: RosterPlayer[];
+}
+
+interface PlayerResult {
+  mlbPlayerId: number;
+  position: string;
+  role?: string;
+  stats: Record<string, unknown>;
+  scoring: {
+    points: number;
+    qualified: boolean;
+    disqualificationReason?: string;
+    breakdown: { category: string; stat: number; points: number; note?: string }[];
+    specialAwards: { name: string; description: string; payout: number }[];
+  };
+}
+
+interface WeekResult {
+  weekNumber: number;
+  dateRange: { start: string; end: string };
+  results: PlayerResult[];
+}
+
+function getMonday(d: Date): Date {
+  const day = d.getDay();
+  const diff = d.getDate() - ((day + 6) % 7);
+  return new Date(d.getFullYear(), d.getMonth(), diff);
+}
+
+function getSunday(monday: Date): Date {
+  const sun = new Date(monday);
+  sun.setDate(monday.getDate() + 6);
+  return sun;
+}
+
+function fmt(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+export default function ScoresPage() {
+  const { user } = useUser();
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  const [shortWeek, setShortWeek] = useState(false);
+  const [activePlayers, setActivePlayersRaw] = useState<Set<string>>(new Set());
+  const [calculating, setCalculating] = useState(false);
+  const [weekResult, setWeekResult] = useState<WeekResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedPlayer, setExpandedPlayer] = useState<number | null>(null);
+  const [rosterCollapsed, setRosterCollapsed] = useState(false);
+  const loadedCacheRef = useRef(false);
+
+  // Wrap setActivePlayers to also persist to localStorage
+  function setActivePlayers(players: Set<string>) {
+    setActivePlayersRaw(players);
+    try {
+      localStorage.setItem(`slobs-active-${selectedTeamId}`, JSON.stringify([...players]));
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    const monday = getMonday(new Date());
+    const sunday = getSunday(monday);
+    setStartDate(fmt(monday));
+    setEndDate(fmt(sunday));
+
+    fetch("/api/roster?league_id=01756471-3bd1-4e83-8533-093d9e97bb86")
+      .then((r) => r.json())
+      .then((data) => {
+        const t = data.teams || [];
+        setTeams(t);
+      });
+  }, []);
+
+  // Auto-select user's team when teams load or user changes
+  useEffect(() => {
+    if (teams.length === 0 || selectedTeamId) return;
+    // Try to find the user's own team first
+    const myTeam = user?.id ? teams.find((t) => t.owner_user_id === user.id) : null;
+    const defaultTeam = myTeam || teams[0];
+    if (defaultTeam) {
+      setSelectedTeamId(defaultTeam.id);
+    }
+  }, [teams, user, selectedTeamId]);
+
+  // When team changes, load from cache or default to all active
+  useEffect(() => {
+    const team = teams.find((t) => t.id === selectedTeamId);
+    if (team) {
+      // Try loading cached active players
+      try {
+        const cached = localStorage.getItem(`slobs-active-${selectedTeamId}`);
+        if (cached) {
+          const ids = JSON.parse(cached) as string[];
+          // Validate that cached IDs still exist on the roster
+          const rosterIds = new Set(team.roster_players.map((p) => p.id));
+          const valid = ids.filter((id) => rosterIds.has(id));
+          if (valid.length > 0) {
+            setActivePlayersRaw(new Set(valid));
+            loadedCacheRef.current = true;
+            setWeekResult(null);
+            return;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      // Default: all active
+      setActivePlayersRaw(new Set(team.roster_players.map((p) => p.id)));
+      setWeekResult(null);
+    }
+  }, [selectedTeamId, teams]);
+
+  const selectedTeam = teams.find((t) => t.id === selectedTeamId);
+  const allPlayers = selectedTeam?.roster_players || [];
+
+  function togglePlayer(id: string) {
+    const next = new Set(activePlayers);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setActivePlayers(next);
+    setShowWarningConfirm(false);
+  }
+
+  function setWeekFromOffset(offset: number) {
+    const current = startDate ? new Date(startDate + "T12:00:00") : getMonday(new Date());
+    current.setDate(current.getDate() + offset * 7);
+    const monday = getMonday(current);
+    setStartDate(fmt(monday));
+    setEndDate(fmt(getSunday(monday)));
+  }
+
+  // Roster validation
+  const REQUIRED_BATTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "OF", "DH"];
+  const REQUIRED_SP = 4;
+  const REQUIRED_RP = 2;
+
+  function validateRoster(): { valid: boolean; warnings: string[]; errors: string[] } {
+    const activeList = allPlayers.filter((p) => activePlayers.has(p.id));
+    const activeBats = activeList.filter((p) => !p.is_pitcher);
+    const activeSP = activeList.filter((p) => p.is_pitcher && p.primary_position === "SP");
+    const activeRP = activeList.filter((p) => p.is_pitcher && p.primary_position === "RP");
+
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Check batter positions
+    const filledPositions = new Set(activeBats.map((p) => p.primary_position));
+    const missingPositions = REQUIRED_BATTER_POSITIONS.filter((pos) => !filledPositions.has(pos));
+    if (missingPositions.length > 0) {
+      warnings.push(`Missing batter position(s): ${missingPositions.join(", ")}`);
+    }
+
+    // Check for duplicate positions (more than allowed at a position)
+    // OF can have multiple, others should be 1
+    for (const pos of ["C", "1B", "2B", "3B", "SS", "DH"]) {
+      const count = activeBats.filter((p) => p.primary_position === pos).length;
+      if (count > 1) {
+        warnings.push(`${count} players at ${pos} (expected 1)`);
+      }
+    }
+
+    // Check pitchers
+    if (activeSP.length < REQUIRED_SP) {
+      warnings.push(`${activeSP.length} SP active (expected ${REQUIRED_SP})`);
+    }
+    if (activeRP.length < REQUIRED_RP) {
+      warnings.push(`${activeRP.length} RP active (expected ${REQUIRED_RP})`);
+    }
+
+    // No active players at all = hard error
+    if (activeList.filter((p) => p.mlb_player_id > 0).length === 0) {
+      errors.push("No active players with MLB IDs");
+    }
+
+    return { valid: errors.length === 0, warnings, errors };
+  }
+
+  const rosterCheck = validateRoster();
+  const [showWarningConfirm, setShowWarningConfirm] = useState(false);
+
+  async function calculateScores() {
+    if (!selectedTeam) return;
+
+    // If there are warnings and user hasn't confirmed, show confirmation
+    if (rosterCheck.warnings.length > 0 && !showWarningConfirm) {
+      setShowWarningConfirm(true);
+      return;
+    }
+    setShowWarningConfirm(false);
+
+    setCalculating(true);
+    setError(null);
+    setWeekResult(null);
+
+    // Calculate ALL players with MLB IDs (active and inactive)
+    const players = allPlayers
+      .filter((p) => p.mlb_player_id > 0)
+      .map((p) => ({
+        mlbPlayerId: p.mlb_player_id,
+        position: p.primary_position,
+        isPitcher: p.is_pitcher,
+        role: p.is_pitcher ? p.primary_position : undefined,
+      }));
+
+    if (players.length === 0) {
+      setError("No players with MLB IDs found. Players need MLB IDs to calculate scores.");
+      setCalculating(false);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/scores/calculate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          weekNumber: 1, // not used for date range
+          seasonYear: 2026,
+          players,
+          shortWeek,
+          startDate,
+          endDate,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setWeekResult(data);
+        setRosterCollapsed(true); // auto-collapse roster to show results
+      }
+    } catch (e) {
+      setError("Failed to calculate: " + String(e));
+    }
+    setCalculating(false);
+  }
+
+  // Build lookup maps
+  const playerNameMap = new Map<number, string>();
+  const playerPosMap = new Map<number, string>();
+  const playerIsPitcher = new Map<number, boolean>();
+  allPlayers.forEach((p) => {
+    playerNameMap.set(p.mlb_player_id, p.mlb_player_name);
+    playerPosMap.set(p.mlb_player_id, p.primary_position);
+    playerIsPitcher.set(p.mlb_player_id, p.is_pitcher);
+  });
+
+  // Build set of active MLB IDs from the active roster player IDs
+  const activeMLBIds = new Set<number>();
+  allPlayers.forEach((p) => {
+    if (activePlayers.has(p.id)) activeMLBIds.add(p.mlb_player_id);
+  });
+
+  const batterResults = weekResult?.results.filter((r) => !playerIsPitcher.get(r.mlbPlayerId)) || [];
+  const pitcherResults = weekResult?.results.filter((r) => playerIsPitcher.get(r.mlbPlayerId)) || [];
+
+  // Only count active + qualified players in totals
+  const batterTotal = batterResults
+    .filter((r) => activeMLBIds.has(r.mlbPlayerId))
+    .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
+  const pitcherTotal = pitcherResults
+    .filter((r) => activeMLBIds.has(r.mlbPlayerId))
+    .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
+  const weekTotal = batterTotal + pitcherTotal;
+
+  const activeBatters = allPlayers.filter((p) => !p.is_pitcher);
+  const activePitchers = allPlayers.filter((p) => p.is_pitcher);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Weekly Scores</h1>
+        <select
+          value={selectedTeamId}
+          onChange={(e) => setSelectedTeamId(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium"
+        >
+          {teams.map((t) => (
+            <option key={t.id} value={t.id}>{t.name}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Date Range + Calculate */}
+      <div className="bg-white rounded-lg shadow p-4 space-y-3">
+        <div className="flex items-end gap-4 flex-wrap">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Start Date</label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">End Date</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex gap-1">
+            <button onClick={() => setWeekFromOffset(-1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">Prev Week</button>
+            <button onClick={() => setWeekFromOffset(1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">Next Week</button>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={shortWeek}
+              onChange={(e) => setShortWeek(e.target.checked)}
+              className="rounded border-gray-300"
+            />
+            Short week (no thresholds)
+          </label>
+          <button
+            onClick={calculateScores}
+            disabled={calculating || !rosterCheck.valid}
+            className="bg-green-700 text-white px-6 py-2 rounded-lg hover:bg-green-800 disabled:opacity-50 text-sm font-bold ml-auto"
+          >
+            {calculating ? "Calculating..." : showWarningConfirm ? "Calculate Anyway" : "Calculate"}
+          </button>
+        </div>
+      </div>
+
+      {/* Roster Validation */}
+      {rosterCheck.errors.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
+          {rosterCheck.errors.map((e, i) => <div key={i}>{e}</div>)}
+        </div>
+      )}
+      {showWarningConfirm && rosterCheck.warnings.length > 0 && (
+        <div className="bg-amber-50 border border-amber-300 rounded-lg p-3 text-sm text-amber-800">
+          <p className="font-medium mb-1">Roster warnings:</p>
+          <ul className="list-disc list-inside space-y-0.5">
+            {rosterCheck.warnings.map((w, i) => <li key={i}>{w}</li>)}
+          </ul>
+          <p className="mt-2 text-xs text-amber-600">Click &quot;Calculate Anyway&quot; to proceed, or fix your active roster above.</p>
+        </div>
+      )}
+      {!showWarningConfirm && rosterCheck.warnings.length > 0 && !weekResult && (
+        <div className="flex items-center gap-2 text-xs text-amber-600">
+          <span>Roster: {rosterCheck.warnings.join(" | ")}</span>
+        </div>
+      )}
+
+      {/* Weekly Forecast - for NEXT week */}
+      <ForecastPanel teamId={selectedTeamId} currentStartDate={startDate} />
+
+      {/* Lineup Slots Visual */}
+      <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} />
+
+      {/* Active Roster Selection */}
+      <div className="bg-white rounded-lg shadow">
+        <button
+          onClick={() => setRosterCollapsed(!rosterCollapsed)}
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 text-left"
+        >
+          <h2 className="font-semibold text-sm">
+            Active Roster ({activePlayers.size} of {allPlayers.length})
+            {rosterCollapsed && <span className="text-gray-400 font-normal ml-2">click to expand</span>}
+          </h2>
+          <div className="flex gap-2 items-center">
+            {!rosterCollapsed && (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setActivePlayers(new Set(allPlayers.map((p) => p.id))); }}
+                  className="text-xs text-green-700 hover:text-green-900"
+                >
+                  Activate All
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setActivePlayers(new Set()); }}
+                  className="text-xs text-gray-500 hover:text-gray-700"
+                >
+                  Clear All
+                </button>
+              </>
+            )}
+            <span className="text-gray-400 text-xs">{rosterCollapsed ? "[+]" : "[-]"}</span>
+          </div>
+        </button>
+        {!rosterCollapsed && <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-gray-200">
+          {/* Batters column */}
+          <div className="border-r border-gray-100">
+            <div className="px-4 py-2 bg-gray-50 text-xs text-gray-400 uppercase font-medium">Batters</div>
+            {activeBatters.map((p) => (
+              <label key={p.id} className="flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={activePlayers.has(p.id)}
+                  onChange={() => togglePlayer(p.id)}
+                  className="rounded border-gray-300 text-green-600"
+                />
+                <span className="text-xs font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded w-7 text-center">
+                  {p.primary_position}
+                </span>
+                <span className="text-sm">{p.mlb_player_name}</span>
+                {(!p.mlb_player_id || p.mlb_player_id === 0) && (
+                  <span className="text-xs text-amber-500">no ID</span>
+                )}
+              </label>
+            ))}
+          </div>
+          {/* Pitchers column */}
+          <div>
+            <div className="px-4 py-2 bg-gray-50 text-xs text-gray-400 uppercase font-medium">Pitchers</div>
+            {activePitchers.map((p) => (
+              <label key={p.id} className="flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={activePlayers.has(p.id)}
+                  onChange={() => togglePlayer(p.id)}
+                  className="rounded border-gray-300 text-blue-600"
+                />
+                <span className="text-xs font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded w-7 text-center">
+                  {p.primary_position}
+                </span>
+                <span className="text-sm">{p.mlb_player_name}</span>
+                {(!p.mlb_player_id || p.mlb_player_id === 0) && (
+                  <span className="text-xs text-amber-500">no ID</span>
+                )}
+              </label>
+            ))}
+          </div>
+        </div>}
+      </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">{error}</div>
+      )}
+
+      {weekResult && (
+        <>
+          {/* Summary */}
+          <div className="grid grid-cols-3 gap-4">
+            <div className="bg-white rounded-lg shadow p-5 text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wider">Batting</p>
+              <p className="text-3xl font-bold text-green-700 mt-1">{batterTotal}</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-5 text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wider">Pitching</p>
+              <p className="text-3xl font-bold text-blue-700 mt-1">{pitcherTotal}</p>
+            </div>
+            <div className="bg-white rounded-lg shadow p-5 text-center">
+              <p className="text-xs text-gray-400 uppercase tracking-wider">Total</p>
+              <p className="text-3xl font-bold mt-1">{weekTotal}</p>
+            </div>
+          </div>
+
+          {/* Special Awards */}
+          {weekResult.results.some((r) => r.scoring.specialAwards.length > 0) && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+              <h3 className="font-semibold text-yellow-800 mb-2">Special Awards</h3>
+              {weekResult.results
+                .filter((r) => r.scoring.specialAwards.length > 0)
+                .flatMap((r) =>
+                  r.scoring.specialAwards.map((a, i) => (
+                    <div key={`${r.mlbPlayerId}-${i}`} className="text-sm text-yellow-700">
+                      <span className="font-medium">{a.name}</span> - {playerNameMap.get(r.mlbPlayerId)}: {a.description}
+                    </div>
+                  ))
+                )}
+            </div>
+          )}
+
+          {/* Batter Scores */}
+          <ScoreSection
+            title={`Batting (${batterTotal} pts)`}
+            results={batterResults}
+            playerNameMap={playerNameMap}
+            playerPosMap={playerPosMap}
+            isPitcher={false}
+            activeMLBIds={activeMLBIds}
+            expandedPlayer={expandedPlayer}
+            setExpandedPlayer={setExpandedPlayer}
+          />
+
+          {/* Pitcher Scores */}
+          <ScoreSection
+            title={`Pitching (${pitcherTotal} pts)`}
+            results={pitcherResults}
+            playerNameMap={playerNameMap}
+            playerPosMap={playerPosMap}
+            isPitcher={true}
+            activeMLBIds={activeMLBIds}
+            expandedPlayer={expandedPlayer}
+            setExpandedPlayer={setExpandedPlayer}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+function ForecastPanel({
+  teamId,
+  currentStartDate,
+}: {
+  teamId: string;
+  currentStartDate: string;
+}) {
+  const [forecast, setForecast] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Forecast is always for NEXT week (Mon-Sun after the current period)
+  const baseDate = currentStartDate || fmt(getMonday(new Date()));
+  const nextMonday = new Date(baseDate + "T12:00:00");
+  nextMonday.setDate(nextMonday.getDate() + 7);
+  const nextSunday = new Date(nextMonday);
+  nextSunday.setDate(nextMonday.getDate() + 6);
+  const forecastStart = fmt(nextMonday);
+  const forecastEnd = fmt(nextSunday);
+
+  async function generateForecast() {
+    setLoading(true);
+    setError(null);
+    setForecast(null);
+    try {
+      const res = await fetch("/api/forecast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ team_id: teamId, start_date: forecastStart, end_date: forecastEnd }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setForecast(data.forecast);
+      }
+    } catch (e) {
+      setError("Failed to generate forecast: " + String(e));
+    }
+    setLoading(false);
+  }
+
+  return (
+    <div className="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg shadow border border-green-200">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <h2 className="font-semibold text-sm text-green-900">
+          Next Week Forecast ({forecastStart} to {forecastEnd})
+        </h2>
+        <div className="flex items-center gap-2">
+          {forecast && (
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              className="text-xs text-gray-500 hover:text-gray-700"
+            >
+              {collapsed ? "Show" : "Hide"}
+            </button>
+          )}
+          <button
+            onClick={generateForecast}
+            disabled={loading}
+            className="bg-green-700 text-white px-3 py-1.5 rounded text-xs font-medium hover:bg-green-800 disabled:opacity-50"
+          >
+            {loading ? "Analyzing..." : forecast ? "Refresh" : "Generate Forecast"}
+          </button>
+        </div>
+      </div>
+      {error && (
+        <div className="px-4 pb-3 text-sm text-red-600">{error}</div>
+      )}
+      {loading && (
+        <div className="px-4 pb-4 text-sm text-gray-500">
+          Pulling MLB schedule, probable pitchers, recent stats, and injury data...
+        </div>
+      )}
+      {forecast && !collapsed && (
+        <div className="px-4 pb-4 prose prose-sm max-w-none text-gray-800">
+          <ReactMarkdown>{forecast}</ReactMarkdown>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SlotsBar({
+  allPlayers,
+  activePlayers,
+}: {
+  allPlayers: RosterPlayer[];
+  activePlayers: Set<string>;
+}) {
+  const activeList = allPlayers.filter((p) => activePlayers.has(p.id));
+
+  const BATTER_SLOTS = [
+    { pos: "C", label: "C", count: 1 },
+    { pos: "1B", label: "1B", count: 1 },
+    { pos: "2B", label: "2B", count: 1 },
+    { pos: "3B", label: "3B", count: 1 },
+    { pos: "SS", label: "SS", count: 1 },
+    { pos: "OF", label: "OF", count: 3 },
+    { pos: "DH", label: "DH", count: 1 },
+  ];
+
+  const PITCHER_SLOTS = [
+    { pos: "SP", label: "SP", count: 4 },
+    { pos: "RP", label: "RP", count: 2 },
+  ];
+
+  function getPlayersAtPos(pos: string, isPitcher: boolean) {
+    return activeList
+      .filter((p) => p.primary_position === pos && p.is_pitcher === isPitcher)
+      .map((p) => p.mlb_player_name);
+  }
+
+  function renderSlots(
+    slots: typeof BATTER_SLOTS,
+    isPitcher: boolean,
+    filledColor: string,
+    filledBorder: string,
+    filledText: string,
+    filledLabel: string,
+  ) {
+    return slots.flatMap((slot) => {
+      const names = getPlayersAtPos(slot.pos, isPitcher);
+      const required = slot.count;
+      // Show required slots + any overflow
+      const totalToShow = Math.max(required, names.length);
+      return Array.from({ length: totalToShow }, (_, i) => {
+        const playerName = names[i] || "";
+        const shortName = playerName ? playerName.split(" ").slice(-1)[0] : "";
+        const isFilled = i < names.length;
+        const isOverflow = i >= required; // extra player beyond required slots
+
+        let className: string;
+        if (isOverflow) {
+          className = "bg-amber-50 border-amber-400 border-2";
+        } else if (isFilled) {
+          className = `${filledColor} ${filledBorder}`;
+        } else {
+          className = "bg-gray-50 border-dashed border-gray-300";
+        }
+
+        return (
+          <div
+            key={`${slot.pos}-${i}`}
+            className={`flex flex-col items-center min-w-[52px] rounded-lg px-2 py-1.5 border ${className}`}
+            title={isOverflow ? `Extra ${slot.label}: ${playerName} (over limit of ${required})` : playerName || `${slot.label} (empty)`}
+          >
+            <span className={`text-[10px] font-mono font-bold ${isOverflow ? "text-amber-700" : isFilled ? filledLabel : "text-gray-400"}`}>
+              {isOverflow ? `+${slot.label}` : slot.label}
+            </span>
+            <span className={`text-[10px] truncate max-w-[48px] ${isOverflow ? "text-amber-800" : isFilled ? filledText : "text-gray-300"}`}>
+              {shortName || "---"}
+            </span>
+          </div>
+        );
+      });
+    });
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow p-4">
+      <div className="flex flex-wrap gap-x-6 gap-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-400 font-medium uppercase w-full mb-1">Batting</span>
+          {renderSlots(BATTER_SLOTS, false, "bg-green-50", "border-green-300", "text-green-900", "text-green-700")}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-gray-400 font-medium uppercase w-full mb-1">Pitching</span>
+          {renderSlots(PITCHER_SLOTS, true, "bg-blue-50", "border-blue-300", "text-blue-900", "text-blue-700")}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BreakdownTable({
+  breakdown,
+  isPitcher,
+}: {
+  breakdown: { category: string; stat: number; points: number; note?: string }[];
+  isPitcher: boolean;
+}) {
+  const [expandedGames, setExpandedGames] = useState<Set<number>>(new Set());
+
+  // For pitchers, group items by game (items starting with "Game:" are headers)
+  if (isPitcher) {
+    const groups: { header: typeof breakdown[0]; items: typeof breakdown }[] = [];
+    for (const item of breakdown) {
+      if (item.category.startsWith("Game:")) {
+        groups.push({ header: item, items: [] });
+      } else if (groups.length > 0) {
+        groups[groups.length - 1].items.push(item);
+      } else {
+        // Item before any game header (shouldn't happen, but handle gracefully)
+        groups.push({ header: { category: "Summary", stat: 0, points: 0, note: "" }, items: [item] });
+      }
+    }
+
+    return (
+      <div className="space-y-1">
+        {groups.map((group, gi) => {
+          const gameExpanded = expandedGames.has(gi);
+          const gamePts = group.items.reduce((s, item) => s + item.points, 0);
+          return (
+            <div key={gi}>
+              <button
+                onClick={() => {
+                  const next = new Set(expandedGames);
+                  if (next.has(gi)) next.delete(gi); else next.add(gi);
+                  setExpandedGames(next);
+                }}
+                className="w-full flex items-center justify-between py-1.5 px-2 rounded hover:bg-blue-50 text-left text-xs"
+              >
+                <div className="flex-1">
+                  <span className="font-medium text-blue-800">{group.header.category.replace("Game: ", "")}</span>
+                  <span className="text-gray-400 ml-2">{group.header.note}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`font-mono font-bold ${gamePts > 0 ? "text-green-700" : gamePts < 0 ? "text-red-600" : "text-gray-400"}`}>
+                    {gamePts > 0 ? "+" : ""}{gamePts}
+                  </span>
+                  <span className="text-gray-300">{gameExpanded ? "[-]" : "[+]"}</span>
+                </div>
+              </button>
+              {gameExpanded && group.items.length > 0 && (
+                <table className="w-full text-xs ml-4 mb-2">
+                  <tbody>
+                    {group.items.map((item, i) => (
+                      <tr key={i} className="border-t border-gray-50">
+                        <td className="py-1 pl-2 text-gray-600">{item.category}</td>
+                        <td className={`py-1 text-right font-mono w-14 ${item.points < 0 ? "text-red-600" : item.points > 0 ? "text-green-700" : "text-gray-400"}`}>
+                          {item.points > 0 ? "+" : ""}{item.points}
+                        </td>
+                        <td className="py-1 pl-3 text-gray-400">{item.note || ""}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {gameExpanded && group.items.length === 0 && (
+                <p className="text-xs text-gray-400 ml-6 mb-2">No scoring events this game</p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // For batters, flat table (same as before)
+  return (
+    <table className="w-full text-xs">
+      <thead>
+        <tr className="text-gray-400">
+          <th className="text-left py-1">Category</th>
+          <th className="text-right py-1 w-14">Pts</th>
+          <th className="text-left py-1 pl-3">Detail</th>
+        </tr>
+      </thead>
+      <tbody>
+        {breakdown.map((item, i) => (
+          <tr key={i} className="border-t border-gray-50">
+            <td className="py-1">{item.category}</td>
+            <td className={`py-1 text-right font-mono ${item.points < 0 ? "text-red-600" : item.points > 0 ? "text-green-700" : "text-gray-400"}`}>
+              {item.points > 0 ? "+" : ""}{item.points}
+            </td>
+            <td className="py-1 pl-3 text-gray-400">{item.note || ""}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ScoreSection({
+  title, results, playerNameMap, playerPosMap, isPitcher, activeMLBIds, expandedPlayer, setExpandedPlayer,
+}: {
+  title: string;
+  results: PlayerResult[];
+  playerNameMap: Map<number, string>;
+  playerPosMap: Map<number, string>;
+  isPitcher: boolean;
+  activeMLBIds: Set<number>;
+  expandedPlayer: number | null;
+  setExpandedPlayer: (id: number | null) => void;
+}) {
+  // Sort: active players first (by points desc), then inactive (by points desc)
+  const sorted = [...results].sort((a, b) => {
+    const aActive = activeMLBIds.has(a.mlbPlayerId) ? 0 : 1;
+    const bActive = activeMLBIds.has(b.mlbPlayerId) ? 0 : 1;
+    if (aActive !== bActive) return aActive - bActive;
+    return b.scoring.points - a.scoring.points;
+  });
+
+  return (
+    <div className="bg-white rounded-lg shadow">
+      <div className="px-4 py-3 border-b border-gray-200">
+        <h2 className="font-semibold">{title}</h2>
+      </div>
+      <div className="divide-y divide-gray-50">
+        {sorted.map((r) => {
+          const expanded = expandedPlayer === r.mlbPlayerId;
+          const isActive = activeMLBIds.has(r.mlbPlayerId);
+          return (
+            <div key={r.mlbPlayerId} className={isActive ? "" : "opacity-50"}>
+              <button
+                onClick={() => setExpandedPlayer(expanded ? null : r.mlbPlayerId)}
+                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`text-xs font-mono px-2 py-0.5 rounded w-8 text-center ${isPitcher ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}`}>
+                    {playerPosMap.get(r.mlbPlayerId) || r.position}
+                  </span>
+                  <span className="text-sm font-medium">{playerNameMap.get(r.mlbPlayerId) || `#${r.mlbPlayerId}`}</span>
+                  {!isActive && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">bench</span>}
+                  {!r.scoring.qualified && <span className="text-xs text-red-500 bg-red-50 px-1.5 py-0.5 rounded">DQ</span>}
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`font-mono font-bold text-sm ${r.scoring.points > 0 ? "text-green-700" : r.scoring.points < 0 ? "text-red-600" : "text-gray-400"}`}>
+                    {r.scoring.points > 0 ? "+" : ""}{r.scoring.points}
+                  </span>
+                  <span className="text-gray-300 text-xs">{expanded ? "[-]" : "[+]"}</span>
+                </div>
+              </button>
+              {expanded && (
+                <div className="px-4 pb-3">
+                  {!r.scoring.qualified && r.scoring.disqualificationReason && (
+                    <p className="text-xs text-red-500 mb-2">{r.scoring.disqualificationReason}</p>
+                  )}
+                  {r.scoring.breakdown.length > 0 ? (
+                    <BreakdownTable breakdown={r.scoring.breakdown} isPitcher={isPitcher} />
+                  ) : (
+                    <p className="text-xs text-gray-400">No scoring activity</p>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {results.length === 0 && <div className="px-4 py-3 text-sm text-gray-400">No results</div>}
+      </div>
+    </div>
+  );
+}
