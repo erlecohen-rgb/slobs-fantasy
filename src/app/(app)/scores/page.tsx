@@ -221,8 +221,8 @@ export default function ScoresPage() {
       .map((p) => ({
         mlbPlayerId: p.mlb_player_id,
         position: p.primary_position,
-        isPitcher: p.is_pitcher,
-        role: p.is_pitcher ? p.primary_position : undefined,
+        isPitcher: p.primary_position === "SP" || p.primary_position === "RP",
+        role: (p.primary_position === "SP" || p.primary_position === "RP") ? p.primary_position : undefined,
       }));
 
     if (players.length === 0) {

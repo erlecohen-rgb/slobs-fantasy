@@ -137,14 +137,15 @@ async function fetchRecentStats(players: RosterPlayer[], beforeDate: string) {
     const promises = batch.map(async (p) => {
       if (!p.mlb_player_id) return;
       try {
-        const group = p.is_pitcher ? "pitching" : "hitting";
+        const isPitcherPosition = p.primary_position === "SP" || p.primary_position === "RP";
+        const group = isPitcherPosition ? "pitching" : "hitting";
         const res = await fetch(
           `${MLB_API}/people/${p.mlb_player_id}/stats?stats=gameLog&group=${group}&startDate=${twoWeeksAgo}&endDate=${beforeDate}&sportId=1`
         );
         const data = await res.json();
         const splits = data.stats?.[0]?.splits || [];
 
-        if (p.is_pitcher) {
+        if (isPitcherPosition) {
           const totalIP = splits.reduce((s: number, g: Record<string, Record<string, number>>) => s + (g.stat?.inningsPitched || 0), 0);
           const totalK = splits.reduce((s: number, g: Record<string, Record<string, number>>) => s + (g.stat?.strikeOuts || 0), 0);
           const totalER = splits.reduce((s: number, g: Record<string, Record<string, number>>) => s + (g.stat?.earnedRuns || 0), 0);
