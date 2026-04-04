@@ -55,8 +55,8 @@ export default function DashboardPage() {
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
   const players = selectedTeam?.roster_players || [];
-  const batters = players.filter((p) => !p.is_pitcher);
-  const pitchers = players.filter((p) => p.is_pitcher);
+  const batters = players.filter((p) => p.primary_position !== "SP" && p.primary_position !== "RP");
+  const pitchers = players.filter((p) => p.primary_position === "SP" || p.primary_position === "RP");
 
   // Group batters by position
   const positionOrder = ["C", "1B", "2B", "3B", "SS", "OF", "DH"];

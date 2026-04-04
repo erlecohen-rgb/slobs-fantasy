@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Gather data in parallel
-  const starters = players.filter((p) => p.is_pitcher && p.primary_position === "SP");
+  const starters = players.filter((p) => p.primary_position === "SP");
   const [schedule, probablePitchers, recentStats, injuries, rotationProjections] = await Promise.all([
     fetchSchedule(start_date, end_date),
     fetchProbablePitchers(start_date, end_date),
@@ -318,8 +318,8 @@ function buildRosterContext(
   endDate: string,
   rotationProjections: Record<number, { lastStart: string; avgGap: number; projectedDates: string[]; confidence: string; recentStarts: string[] }>,
 ) {
-  const batters = players.filter((p) => !p.is_pitcher);
-  const pitchers = players.filter((p) => p.is_pitcher);
+  const batters = players.filter((p) => p.primary_position !== "SP" && p.primary_position !== "RP");
+  const pitchers = players.filter((p) => p.primary_position === "SP" || p.primary_position === "RP");
 
   const batterInfo = batters.map((p) => {
     const teamSchedule = schedule[p.mlb_team] || { count: 0, opponents: [] };

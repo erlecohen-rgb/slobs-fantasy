@@ -136,6 +136,10 @@ export default function ScoresPage() {
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
   const allPlayers = selectedTeam?.roster_players || [];
 
+  // Two-way player safe: use activated position, not is_pitcher flag
+  const isPitcherPosition = (p: RosterPlayer) =>
+    p.primary_position === "SP" || p.primary_position === "RP";
+
   function togglePlayer(id: string) {
     const next = new Set(activePlayers);
     if (next.has(id)) next.delete(id);
@@ -159,9 +163,9 @@ export default function ScoresPage() {
 
   function validateRoster(): { valid: boolean; warnings: string[]; errors: string[] } {
     const activeList = allPlayers.filter((p) => activePlayers.has(p.id));
-    const activeBats = activeList.filter((p) => !p.is_pitcher);
-    const activeSP = activeList.filter((p) => p.is_pitcher && p.primary_position === "SP");
-    const activeRP = activeList.filter((p) => p.is_pitcher && p.primary_position === "RP");
+    const activeBats = activeList.filter((p) => !isPitcherPosition(p));
+    const activeSP = activeList.filter((p) => p.primary_position === "SP");
+    const activeRP = activeList.filter((p) => p.primary_position === "RP");
 
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -264,7 +268,7 @@ export default function ScoresPage() {
   allPlayers.forEach((p) => {
     playerNameMap.set(p.mlb_player_id, p.mlb_player_name);
     playerPosMap.set(p.mlb_player_id, p.primary_position);
-    playerIsPitcher.set(p.mlb_player_id, p.is_pitcher);
+    playerIsPitcher.set(p.mlb_player_id, isPitcherPosition(p));
   });
 
   // Build set of active MLB IDs from the active roster player IDs
@@ -285,8 +289,8 @@ export default function ScoresPage() {
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
   const weekTotal = batterTotal + pitcherTotal;
 
-  const activeBatters = allPlayers.filter((p) => !p.is_pitcher);
-  const activePitchers = allPlayers.filter((p) => p.is_pitcher);
+  const activeBatters = allPlayers.filter((p) => !isPitcherPosition(p));
+  const activePitchers = allPlayers.filter((p) => isPitcherPosition(p));
 
   return (
     <div className="space-y-6">
@@ -627,7 +631,7 @@ function SlotsBar({
 
   function getPlayersAtPos(pos: string, isPitcher: boolean) {
     return activeList
-      .filter((p) => p.primary_position === pos && p.is_pitcher === isPitcher)
+      .filter((p) => p.primary_position === pos && (p.primary_position === "SP" || p.primary_position === "RP") === isPitcher)
       .map((p) => p.mlb_player_name);
   }
 
