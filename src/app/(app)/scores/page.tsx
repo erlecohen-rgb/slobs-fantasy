@@ -219,12 +219,16 @@ export default function ScoresPage() {
     setError(null);
     setWeekResult(null);
 
-    // For each MLB player ID, only score the ACTIVE roster entry.
-    // Two-way players (e.g. Ohtani) may have both a DH and SP entry —
-    // only the activated one should be scored.
+    // Score ALL players so stats are visible, but only active ones count in totals.
+    // Two-way players (e.g. Ohtani) may have both a DH and SP roster entry —
+    // prefer the ACTIVE entry's position; skip the inactive duplicate.
     const seenIds = new Set<number>();
-    const players = allPlayers
-      .filter((p) => p.mlb_player_id > 0 && activePlayers.has(p.id))
+    const activeFirst = [
+      ...allPlayers.filter((p) => activePlayers.has(p.id)),
+      ...allPlayers.filter((p) => !activePlayers.has(p.id)),
+    ];
+    const players = activeFirst
+      .filter((p) => p.mlb_player_id > 0)
       .filter((p) => {
         if (seenIds.has(p.mlb_player_id)) return false;
         seenIds.add(p.mlb_player_id);
