@@ -66,7 +66,7 @@ export default function ScoresPage() {
   const [calculating, setCalculating] = useState(false);
   const [weekResult, setWeekResult] = useState<WeekResult | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [expandedPlayer, setExpandedPlayer] = useState<number | null>(null);
+  const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
   const [rosterCollapsed, setRosterCollapsed] = useState(false);
   const loadedCacheRef = useRef(false);
 
@@ -219,21 +219,11 @@ export default function ScoresPage() {
     setError(null);
     setWeekResult(null);
 
-    // Score ALL players so stats are visible, but only active ones count in totals.
-    // Two-way players (e.g. Ohtani) may have both a DH and SP roster entry —
-    // prefer the ACTIVE entry's position; skip the inactive duplicate.
-    const seenIds = new Set<number>();
-    const activeFirst = [
-      ...allPlayers.filter((p) => activePlayers.has(p.id)),
-      ...allPlayers.filter((p) => !activePlayers.has(p.id)),
-    ];
-    const players = activeFirst
+    // Score ALL roster entries independently. Two-way players (e.g. Ohtani)
+    // have separate DH and SP entries — each gets its own score.
+    // Only active entries count toward the weekly total.
+    const players = allPlayers
       .filter((p) => p.mlb_player_id > 0)
-      .filter((p) => {
-        if (seenIds.has(p.mlb_player_id)) return false;
-        seenIds.add(p.mlb_player_id);
-        return true;
-      })
       .map((p) => ({
         mlbPlayerId: p.mlb_player_id,
         position: p.primary_position,
@@ -273,37 +263,29 @@ export default function ScoresPage() {
     setCalculating(false);
   }
 
-  // Build lookup maps — active entries take priority over inactive
-  // (two-way players like Ohtani may have both DH and SP roster entries)
+  // Build lookup maps. Each roster entry is independent — two-way players
+  // (e.g. Ohtani) have separate entries keyed by "mlbId-position".
   const playerNameMap = new Map<number, string>();
-  const playerPosMap = new Map<number, string>();
-  const playerIsPitcher = new Map<number, boolean>();
-  const activeMLBIds = new Set<number>();
+  const activeKeys = new Set<string>(); // "mlbId-position" keys for active entries
 
-  // First pass: set from all players
   allPlayers.forEach((p) => {
     playerNameMap.set(p.mlb_player_id, p.mlb_player_name);
-    playerPosMap.set(p.mlb_player_id, p.primary_position);
-    playerIsPitcher.set(p.mlb_player_id, isPitcherPosition(p));
-  });
-  // Second pass: active entries override (so DH Ohtani active beats SP Ohtani inactive)
-  allPlayers.forEach((p) => {
     if (activePlayers.has(p.id)) {
-      activeMLBIds.add(p.mlb_player_id);
-      playerPosMap.set(p.mlb_player_id, p.primary_position);
-      playerIsPitcher.set(p.mlb_player_id, isPitcherPosition(p));
+      activeKeys.add(`${p.mlb_player_id}-${p.primary_position}`);
     }
   });
 
-  const batterResults = weekResult?.results.filter((r) => !playerIsPitcher.get(r.mlbPlayerId)) || [];
-  const pitcherResults = weekResult?.results.filter((r) => playerIsPitcher.get(r.mlbPlayerId)) || [];
+  // Use result's own position to split into batter/pitcher sections
+  const resultKey = (r: PlayerResult) => `${r.mlbPlayerId}-${r.position}`;
+  const batterResults = weekResult?.results.filter((r) => r.position !== "SP" && r.position !== "RP") || [];
+  const pitcherResults = weekResult?.results.filter((r) => r.position === "SP" || r.position === "RP") || [];
 
-  // Only count active + qualified players in totals
+  // Only count active + qualified entries in totals
   const batterTotal = batterResults
-    .filter((r) => activeMLBIds.has(r.mlbPlayerId))
+    .filter((r) => activeKeys.has(resultKey(r)))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
   const pitcherTotal = pitcherResults
-    .filter((r) => activeMLBIds.has(r.mlbPlayerId))
+    .filter((r) => activeKeys.has(resultKey(r)))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
   const weekTotal = batterTotal + pitcherTotal;
 
@@ -515,9 +497,8 @@ export default function ScoresPage() {
             title={`Batting (${batterTotal} pts)`}
             results={batterResults}
             playerNameMap={playerNameMap}
-            playerPosMap={playerPosMap}
             isPitcher={false}
-            activeMLBIds={activeMLBIds}
+            activeKeys={activeKeys}
             expandedPlayer={expandedPlayer}
             setExpandedPlayer={setExpandedPlayer}
           />
@@ -527,9 +508,8 @@ export default function ScoresPage() {
             title={`Pitching (${pitcherTotal} pts)`}
             results={pitcherResults}
             playerNameMap={playerNameMap}
-            playerPosMap={playerPosMap}
             isPitcher={true}
-            activeMLBIds={activeMLBIds}
+            activeKeys={activeKeys}
             expandedPlayer={expandedPlayer}
             setExpandedPlayer={setExpandedPlayer}
           />
@@ -816,21 +796,22 @@ function BreakdownTable({
 }
 
 function ScoreSection({
-  title, results, playerNameMap, playerPosMap, isPitcher, activeMLBIds, expandedPlayer, setExpandedPlayer,
+  title, results, playerNameMap, isPitcher, activeKeys, expandedPlayer, setExpandedPlayer,
 }: {
   title: string;
   results: PlayerResult[];
   playerNameMap: Map<number, string>;
-  playerPosMap: Map<number, string>;
   isPitcher: boolean;
-  activeMLBIds: Set<number>;
-  expandedPlayer: number | null;
-  setExpandedPlayer: (id: number | null) => void;
+  activeKeys: Set<string>;
+  expandedPlayer: string | null;
+  setExpandedPlayer: (id: string | null) => void;
 }) {
+  const rKey = (r: PlayerResult) => `${r.mlbPlayerId}-${r.position}`;
+
   // Sort: active players first (by points desc), then inactive (by points desc)
   const sorted = [...results].sort((a, b) => {
-    const aActive = activeMLBIds.has(a.mlbPlayerId) ? 0 : 1;
-    const bActive = activeMLBIds.has(b.mlbPlayerId) ? 0 : 1;
+    const aActive = activeKeys.has(rKey(a)) ? 0 : 1;
+    const bActive = activeKeys.has(rKey(b)) ? 0 : 1;
     if (aActive !== bActive) return aActive - bActive;
     return b.scoring.points - a.scoring.points;
   });
@@ -842,17 +823,18 @@ function ScoreSection({
       </div>
       <div className="divide-y divide-gray-50">
         {sorted.map((r) => {
-          const expanded = expandedPlayer === r.mlbPlayerId;
-          const isActive = activeMLBIds.has(r.mlbPlayerId);
+          const key = rKey(r);
+          const expanded = expandedPlayer === key;
+          const isActive = activeKeys.has(key);
           return (
-            <div key={r.mlbPlayerId} className={isActive ? "" : "opacity-50"}>
+            <div key={key} className={isActive ? "" : "opacity-50"}>
               <button
-                onClick={() => setExpandedPlayer(expanded ? null : r.mlbPlayerId)}
+                onClick={() => setExpandedPlayer(expanded ? null : key)}
                 className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 text-left"
               >
                 <div className="flex items-center gap-3">
                   <span className={`text-xs font-mono px-2 py-0.5 rounded w-8 text-center ${isPitcher ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}`}>
-                    {playerPosMap.get(r.mlbPlayerId) || r.position}
+                    {r.position}
                   </span>
                   <span className="text-sm font-medium">{playerNameMap.get(r.mlbPlayerId) || `#${r.mlbPlayerId}`}</span>
                   {!isActive && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">bench</span>}
