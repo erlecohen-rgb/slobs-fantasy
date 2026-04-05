@@ -15,6 +15,7 @@ function makeGameLog(overrides = {}) {
     hitByPitch: 0,
     errors: 0,
     passedBalls: 0,
+    wildPitches: 0,
     playedPosition: true,
     ...overrides,
   };
@@ -48,7 +49,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 3, atBats: 24,
       hits: 3, doubles: 0, triples: 0, homeRuns: 0,
       runs: 1, rbi: 1, stolenBases: 0, hitByPitch: 0,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog({ hits: 1 }), makeGameLog({ hits: 1 }), makeGameLog({ hits: 1 })],
     };
     const result = scoreBatter(stats, "1B");
@@ -63,7 +64,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 3, atBats: 24,
       hits: 7, doubles: 0, triples: 0, homeRuns: 0,
       runs: 2, rbi: 3, stolenBases: 0, hitByPitch: 0,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog({ hits: 3 }), makeGameLog({ hits: 2 }), makeGameLog({ hits: 2 })],
     };
     const result = scoreBatter(stats, "1B");
@@ -77,7 +78,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 2, atBats: 24,
       hits: 2, doubles: 0, triples: 0, homeRuns: 0,
       runs: 5, rbi: 3, stolenBases: 0, hitByPitch: 0,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog()],
     };
     const result = scoreBatter(stats, "2B");
@@ -90,7 +91,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 3, atBats: 24,
       hits: 8, doubles: 2, triples: 1, homeRuns: 1,
       runs: 4, rbi: 5, stolenBases: 2, hitByPitch: 1,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog()],
     };
     const result = scoreBatter(stats, "SS");
@@ -109,11 +110,23 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 2, atBats: 24,
       hits: 0, doubles: 0, triples: 0, homeRuns: 0,
       runs: 0, rbi: 0, stolenBases: 0, hitByPitch: 0,
-      errors: 2, passedBalls: 0,
+      errors: 2, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog({ errors: 2 })],
     };
     const result = scoreBatter(stats, "3B");
     expect(result.points).toBe(-20);
+  });
+
+  test("wild pitches subtract 5 each", () => {
+    const stats: BatterWeeklyStats = {
+      games: 6, gamesAtPosition: 2, atBats: 24,
+      hits: 0, doubles: 0, triples: 0, homeRuns: 0,
+      runs: 0, rbi: 0, stolenBases: 0, hitByPitch: 0,
+      errors: 0, passedBalls: 0, wildPitches: 3,
+      gameLog: [makeGameLog({ wildPitches: 3 })],
+    };
+    const result = scoreBatter(stats, "C");
+    expect(result.points).toBe(-15);
   });
 
   test("disqualified if not enough games at position", () => {
@@ -121,7 +134,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 1, atBats: 24,
       hits: 10, doubles: 3, triples: 1, homeRuns: 2,
       runs: 6, rbi: 8, stolenBases: 3, hitByPitch: 0,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog()],
     };
     const result = scoreBatter(stats, "1B");
@@ -134,7 +147,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 0, atBats: 24,
       hits: 5, doubles: 0, triples: 0, homeRuns: 0,
       runs: 0, rbi: 0, stolenBases: 0, hitByPitch: 0,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog()],
     };
     const result = scoreBatter(stats, "DH");
@@ -147,7 +160,7 @@ describe("Batter Scoring", () => {
       games: 3, gamesAtPosition: 1, atBats: 12,
       hits: 3, doubles: 0, triples: 0, homeRuns: 0,
       runs: 2, rbi: 1, stolenBases: 0, hitByPitch: 0,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog()],
     };
     const result = scoreBatter(stats, "1B", true);
@@ -161,7 +174,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 4, atBats: 20,
       hits: 0, doubles: 0, triples: 0, homeRuns: 0,
       runs: 0, rbi: 0, stolenBases: 0, hitByPitch: 0,
-      errors: 2, passedBalls: 0,
+      errors: 2, passedBalls: 0, wildPitches: 0,
       gameLog: [makeGameLog({ errors: 2 })],
     };
     const result = scoreBatter(stats, "C");
@@ -176,7 +189,7 @@ describe("Batter Scoring", () => {
       games: 6, gamesAtPosition: 3, atBats: 24,
       hits: 8, doubles: 1, triples: 0, homeRuns: 0,
       runs: 3, rbi: 2, stolenBases: 0, hitByPitch: 0,
-      errors: 0, passedBalls: 0,
+      errors: 0, passedBalls: 0, wildPitches: 0,
       gameLog: [
         makeGameLog({ atBats: 5, hits: 5, doubles: 1 }),
         makeGameLog({ atBats: 4, hits: 2 }),
