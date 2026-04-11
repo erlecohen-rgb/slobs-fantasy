@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Baseball bat: handle at bottom-left, barrel at top-right -->
+  <path fill="#8B4513" d="
+    M 18 88
+    C 14 93 12 97 17 98
+    C 22 99 26 95 30 90
+    L 72 34
+    C 82 22 91 14 93 17
+    C 95 20 88 29 78 41
+    L 36 95
+    C 31 100 24 100 20 97
+    Z
+  "/>
+</svg>
