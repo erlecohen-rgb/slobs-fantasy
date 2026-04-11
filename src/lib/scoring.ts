@@ -149,7 +149,7 @@ export function scoreBatter(
       category: `${g.date} vs ${g.opponent}`,
       stat: g.atBats,
       points: 0,
-      note: `${g.hits}-${g.atBats}, ${g.runs}R ${g.rbi}RBI${mismatch}`,
+      note: `${g.hits}-${g.atBats}, ${g.runs}R ${g.rbi}RBI, ${g.hitByPitch}HBP${mismatch}`,
     });
   }
 
@@ -220,6 +220,8 @@ export function scoreBatter(
     const pts = stats.hitByPitch * 5;
     breakdown.push({ category: "Hit By Pitch", stat: stats.hitByPitch, points: pts });
     totalPoints += pts;
+  } else {
+    breakdown.push({ category: "Hit By Pitch", stat: 0, points: 0 });
   }
   if (stats.stolenBases > 0) {
     const pts = stats.stolenBases * 5;
