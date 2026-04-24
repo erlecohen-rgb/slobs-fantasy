@@ -97,13 +97,12 @@ export default function ScoresPage() {
   // Auto-select user's team when teams load or user changes
   useEffect(() => {
     if (teams.length === 0 || selectedTeamId) return;
-    // Try to find the user's own team first
-    const myTeam = user?.id ? teams.find((t) => t.owner_user_id === user.id) : null;
-    const defaultTeam = myTeam || teams[0];
+    const grizzlies = teams.find((t) => t.name === "Grumpy Grizzlies");
+    const defaultTeam = grizzlies || teams[0];
     if (defaultTeam) {
       setSelectedTeamId(defaultTeam.id);
     }
-  }, [teams, user, selectedTeamId]);
+  }, [teams, selectedTeamId]);
 
   // When team changes, load from cache or default to all active
   useEffect(() => {

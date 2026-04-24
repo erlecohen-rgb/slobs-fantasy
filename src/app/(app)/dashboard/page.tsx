@@ -43,8 +43,8 @@ export default function DashboardPage() {
         const t = data.teams || [];
         setTeams(t);
         if (!selectedTeamId) {
-          const myTeam = user?.id ? t.find((team: Team) => team.owner_user_id === user.id) : null;
-          setSelectedTeamId(myTeam?.id || t[0]?.id || "");
+          const grizzlies = t.find((team: Team) => team.name === "Grumpy Grizzlies");
+          setSelectedTeamId(grizzlies?.id || t[0]?.id || "");
         }
         setLoading(false);
       })
