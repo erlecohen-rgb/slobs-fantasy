@@ -2,14 +2,9 @@
 
 ## Deployment
 
-This is a fork of wynot/slobs-fantasy. To deploy changes live to production:
-1. Commit changes to this fork
-2. Open a PR from this fork to wynot/slobs-fantasy (the upstream repo)
-3. Merge the PR immediately — no approval needed
-4. Vercel auto-deploys from wynot/slobs-fantasy on merge
-
-IMPORTANT: Always follow this process after making changes. Never just commit to the fork — changes won't go live until they're
-merged upstream.
+Vercel auto-deploys from erlecohen-rgb/slobs-fantasy on push to main. To deploy changes live to production:
+1. Commit and push changes to main on erlecohen-rgb/slobs-fantasy
+2. Vercel auto-deploys on push
 
 ## App Overview
 
