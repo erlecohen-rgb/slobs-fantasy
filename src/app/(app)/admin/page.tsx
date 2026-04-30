@@ -49,6 +49,8 @@ export default function AdminPage() {
   const [playerSearchQueries, setPlayerSearchQueries] = useState<Record<string, string>>({});
   const [playerSearchResults, setPlayerSearchResults] = useState<Record<string, MLBSearchResult[]>>({});
   const [resolvingPlayer, setResolvingPlayer] = useState<string | null>(null);
+  const [isFixingKnown, setIsFixingKnown] = useState(false);
+  const [fixKnownResult, setFixKnownResult] = useState<string | null>(null);
 
   useEffect(() => {
     loadSeasons();
@@ -112,6 +114,24 @@ export default function AdminPage() {
       // ignore
     }
     setResolvingPlayer(null);
+  }
+
+  async function fixKnownPlayers() {
+    setIsFixingKnown(true);
+    setFixKnownResult(null);
+    try {
+      const res = await fetch("/api/admin/fix-known-players", { method: "POST" });
+      const data = await res.json();
+      const lines = (data.applied || []).map(
+        (a: { from: string; to: string; count: number }) => `${a.from} → ${a.to} (${a.count} updated)`
+      );
+      if (data.errors?.length) lines.push(...data.errors.map((e: string) => `Error: ${e}`));
+      setFixKnownResult(lines.join("\n") || "Nothing to fix");
+      await loadUnresolvedPlayers();
+    } catch {
+      setFixKnownResult("Request failed");
+    }
+    setIsFixingKnown(false);
   }
 
   async function seedLeague() {
@@ -202,6 +222,19 @@ export default function AdminPage() {
               <span className="text-sm text-amber-600 font-medium">{unresolvedCount} pending</span>
             )}
           </div>
+          <div className="mb-4 flex items-center gap-3">
+            <button
+              onClick={fixKnownPlayers}
+              disabled={isFixingKnown}
+              className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors text-sm font-medium"
+            >
+              {isFixingKnown ? "Applying..." : "Apply Known Fixes"}
+            </button>
+            <p className="text-xs text-gray-500">Fixes players with abbreviated names (e.g. P C A → Pete Crow-Armstrong)</p>
+          </div>
+          {fixKnownResult && (
+            <pre className="mb-4 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixKnownResult}</pre>
+          )}
           {unresolvedCount === 0 ? (
             <p className="text-sm text-gray-500">No players with missing MLB IDs.</p>
           ) : (
