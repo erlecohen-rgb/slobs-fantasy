@@ -17,7 +17,7 @@ const RIPPERS_PLAYERS = [
   { mlb_player_id: 664285, mlb_player_name: "Framber Valdez",      mlb_team: "DET", primary_position: "SP", is_pitcher: true  },
   { mlb_player_id: 813349, mlb_player_name: "Connelly Early",      mlb_team: "BOS", primary_position: "SP", is_pitcher: true  },
   { mlb_player_id: 666200, mlb_player_name: "Jesus Luzardo",       mlb_team: "PHI", primary_position: "SP", is_pitcher: true  },
-  { mlb_player_id: 686754, mlb_player_name: "Ryan Jensen",         mlb_team: "MIN", primary_position: "SP", is_pitcher: true  },
+  { mlb_player_id: 445276, mlb_player_name: "Kenley Jansen",       mlb_team: "DET", primary_position: "RP", is_pitcher: true  },
   { mlb_player_id: 664126, mlb_player_name: "Pete Fairbanks",      mlb_team: "MIA", primary_position: "RP", is_pitcher: true  },
 ];
 
