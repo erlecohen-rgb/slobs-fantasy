@@ -8,12 +8,32 @@ const KNOWN_FIXES: {
   mlb_player_name: string;
   mlb_player_id: number;
   mlb_team: string;
+  primary_position: string;
+  is_pitcher: boolean;
 }[] = [
   {
     namePattern: "P C A",
     mlb_player_name: "Pete Crow-Armstrong",
     mlb_player_id: 691718,
     mlb_team: "CHC",
+    primary_position: "CF",
+    is_pitcher: false,
+  },
+  {
+    namePattern: "L. Gilbert",
+    mlb_player_name: "Logan Gilbert",
+    mlb_player_id: 669302,
+    mlb_team: "SEA",
+    primary_position: "SP",
+    is_pitcher: true,
+  },
+  {
+    namePattern: "E Diaz",
+    mlb_player_name: "Edwin Diaz",
+    mlb_player_id: 621242,
+    mlb_team: "LAD",
+    primary_position: "RP",
+    is_pitcher: true,
   },
 ];
 
@@ -29,6 +49,8 @@ export async function POST() {
         mlb_player_name: fix.mlb_player_name,
         mlb_player_id: fix.mlb_player_id,
         mlb_team: fix.mlb_team,
+        primary_position: fix.primary_position,
+        is_pitcher: fix.is_pitcher,
       })
       .eq("mlb_player_name", fix.namePattern)
       .select();
