@@ -2,6 +2,21 @@
 
 import { useState, useEffect } from "react";
 
+interface UnresolvedPlayer {
+  id: string;
+  mlb_player_name: string;
+  mlb_player_id: number;
+  mlb_team: string;
+  primary_position: string;
+}
+
+interface MLBSearchResult {
+  id: number;
+  fullName: string;
+  primaryPosition: { abbreviation: string };
+  currentTeam?: { abbreviation?: string };
+}
+
 interface Season {
   id: string;
   name: string;
@@ -29,9 +44,15 @@ export default function AdminPage() {
   const [isCreatingSeason, setIsCreatingSeason] = useState(false);
   const [editingName, setEditingName] = useState<string | null>(null);
   const [editNameValue, setEditNameValue] = useState("");
+  const [unresolvedPlayers, setUnresolvedPlayers] = useState<UnresolvedPlayer[]>([]);
+  const [unresolvedCount, setUnresolvedCount] = useState<number | null>(null);
+  const [playerSearchQueries, setPlayerSearchQueries] = useState<Record<string, string>>({});
+  const [playerSearchResults, setPlayerSearchResults] = useState<Record<string, MLBSearchResult[]>>({});
+  const [resolvingPlayer, setResolvingPlayer] = useState<string | null>(null);
 
   useEffect(() => {
     loadSeasons();
+    loadUnresolvedPlayers();
   }, [showArchived]);
 
   async function loadSeasons() {
@@ -42,6 +63,55 @@ export default function AdminPage() {
     } catch {
       // API not connected yet
     }
+  }
+
+  async function loadUnresolvedPlayers() {
+    try {
+      const res = await fetch("/api/admin/check");
+      const data = await res.json();
+      setUnresolvedPlayers(data.players || []);
+      setUnresolvedCount(data.count ?? 0);
+      const queries: Record<string, string> = {};
+      for (const p of data.players || []) {
+        queries[p.id] = p.mlb_player_name;
+      }
+      setPlayerSearchQueries(queries);
+    } catch {
+      // API not connected yet
+    }
+  }
+
+  async function searchMLBPlayer(playerId: string, query: string) {
+    if (!query.trim()) return;
+    try {
+      const res = await fetch(`/api/players?q=${encodeURIComponent(query)}`);
+      const data = await res.json();
+      setPlayerSearchResults((prev) => ({ ...prev, [playerId]: data.players || [] }));
+    } catch {
+      // ignore
+    }
+  }
+
+  async function resolvePlayer(playerId: string, mlbPlayer: MLBSearchResult) {
+    setResolvingPlayer(playerId);
+    try {
+      const res = await fetch("/api/roster/player", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: playerId,
+          mlb_player_id: mlbPlayer.id,
+          mlb_team: mlbPlayer.currentTeam?.abbreviation || "TBD",
+        }),
+      });
+      if (res.ok) {
+        setPlayerSearchResults((prev) => { const n = { ...prev }; delete n[playerId]; return n; });
+        await loadUnresolvedPlayers();
+      }
+    } catch {
+      // ignore
+    }
+    setResolvingPlayer(null);
   }
 
   async function seedLeague() {
@@ -120,6 +190,84 @@ export default function AdminPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-3xl font-bold">League Administration</h1>
+
+      {/* Unresolved Players */}
+      {unresolvedCount !== null && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Unresolved Players</h2>
+            {unresolvedCount === 0 ? (
+              <span className="text-sm text-green-700 font-medium">All players resolved</span>
+            ) : (
+              <span className="text-sm text-amber-600 font-medium">{unresolvedCount} pending</span>
+            )}
+          </div>
+          {unresolvedCount === 0 ? (
+            <p className="text-sm text-gray-500">No players with missing MLB IDs.</p>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                These players have no MLB ID. Search for the correct player and click their name to resolve.
+              </p>
+              {unresolvedPlayers.map((player) => (
+                <div key={player.id} className="border border-gray-200 rounded-lg p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="font-medium text-sm">{player.mlb_player_name}</p>
+                      <p className="text-xs text-gray-500">{player.primary_position}</p>
+                    </div>
+                    <div className="flex-1 max-w-sm">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={playerSearchQueries[player.id] ?? player.mlb_player_name}
+                          onChange={(e) =>
+                            setPlayerSearchQueries((prev) => ({ ...prev, [player.id]: e.target.value }))
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter")
+                              searchMLBPlayer(player.id, playerSearchQueries[player.id] ?? "");
+                          }}
+                          placeholder="Search MLB player..."
+                          className="border border-gray-300 rounded px-2 py-1 text-sm flex-1"
+                        />
+                        <button
+                          onClick={() => searchMLBPlayer(player.id, playerSearchQueries[player.id] ?? "")}
+                          className="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700"
+                        >
+                          Search
+                        </button>
+                      </div>
+                      {playerSearchResults[player.id] && (
+                        <ul className="mt-2 border border-gray-200 rounded divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                          {playerSearchResults[player.id].length === 0 ? (
+                            <li className="px-3 py-2 text-sm text-gray-500">No results</li>
+                          ) : (
+                            playerSearchResults[player.id].slice(0, 8).map((result) => (
+                              <li key={result.id}>
+                                <button
+                                  onClick={() => resolvePlayer(player.id, result)}
+                                  disabled={resolvingPlayer === player.id}
+                                  className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 disabled:opacity-50"
+                                >
+                                  <span className="font-medium">{result.fullName}</span>
+                                  <span className="text-gray-500 ml-2">
+                                    {result.currentTeam?.abbreviation || "FA"} · {result.primaryPosition?.abbreviation}
+                                  </span>
+                                </button>
+                              </li>
+                            ))
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Seed / Init */}
       <div className="bg-white rounded-lg shadow p-6">

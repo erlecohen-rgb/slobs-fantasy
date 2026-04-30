@@ -30,6 +30,35 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ player: data });
 }
 
+// PATCH /api/roster/player — update a player's MLB data (resolve mlb_player_id, mlb_team, etc.)
+export async function PATCH(request: NextRequest) {
+  const supabase = createServiceClient();
+  const body = await request.json();
+  const { id, mlb_player_id, mlb_team, mlb_player_name, primary_position } = body;
+
+  if (!id) {
+    return NextResponse.json({ error: "id required" }, { status: 400 });
+  }
+
+  const updates: Record<string, unknown> = {};
+  if (mlb_player_id !== undefined) updates.mlb_player_id = mlb_player_id;
+  if (mlb_team !== undefined) updates.mlb_team = mlb_team;
+  if (mlb_player_name !== undefined) updates.mlb_player_name = mlb_player_name;
+  if (primary_position !== undefined) updates.primary_position = primary_position;
+
+  const { data, error } = await supabase
+    .from("roster_players")
+    .update(updates)
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  return NextResponse.json({ player: data });
+}
+
 // DELETE /api/roster/player?id=xxx — remove a player from roster
 export async function DELETE(request: NextRequest) {
   const supabase = createServiceClient();
