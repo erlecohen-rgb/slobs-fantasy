@@ -211,6 +211,24 @@ export default function AdminPage() {
     <div className="space-y-8">
       <h1 className="text-3xl font-bold">League Administration</h1>
 
+      {/* Apply Known Fixes */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h2 className="text-lg font-semibold mb-4">Player Data Fixes</h2>
+        <p className="text-sm text-gray-600 mb-4">
+          Apply corrections for players imported with abbreviated or misspelled names.
+        </p>
+        <button
+          onClick={fixKnownPlayers}
+          disabled={isFixingKnown}
+          className="bg-amber-600 text-white px-6 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors text-sm font-medium"
+        >
+          {isFixingKnown ? "Applying..." : "Apply Known Fixes"}
+        </button>
+        {fixKnownResult && (
+          <pre className="mt-3 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixKnownResult}</pre>
+        )}
+      </div>
+
       {/* Unresolved Players */}
       {unresolvedCount !== null && (
         <div className="bg-white rounded-lg shadow p-6">
@@ -222,19 +240,6 @@ export default function AdminPage() {
               <span className="text-sm text-amber-600 font-medium">{unresolvedCount} pending</span>
             )}
           </div>
-          <div className="mb-4 flex items-center gap-3">
-            <button
-              onClick={fixKnownPlayers}
-              disabled={isFixingKnown}
-              className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors text-sm font-medium"
-            >
-              {isFixingKnown ? "Applying..." : "Apply Known Fixes"}
-            </button>
-            <p className="text-xs text-gray-500">Fixes players with abbreviated names (e.g. P C A → Pete Crow-Armstrong)</p>
-          </div>
-          {fixKnownResult && (
-            <pre className="mb-4 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixKnownResult}</pre>
-          )}
           {unresolvedCount === 0 ? (
             <p className="text-sm text-gray-500">No players with missing MLB IDs.</p>
           ) : (
