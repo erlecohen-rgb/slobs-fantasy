@@ -62,6 +62,34 @@ async function applyFixes() {
     }
   }
 
+  // Fix is_pitcher flag for all pitcher-position players on the Cool Papas
+  const { data: coolPapasTeam } = await supabase
+    .from("teams")
+    .select("id")
+    .eq("name", "Cool Papas")
+    .limit(1)
+    .single();
+
+  if (coolPapasTeam) {
+    const { data, error } = await supabase
+      .from("roster_players")
+      .update({ is_pitcher: true })
+      .eq("team_id", coolPapasTeam.id)
+      .in("primary_position", ["SP", "RP"])
+      .eq("is_pitcher", false)
+      .select("mlb_player_name");
+
+    if (error) {
+      errors.push(`Cool Papas pitcher flag: ${error.message}`);
+    } else if (data && data.length > 0) {
+      applied.push({
+        from: "is_pitcher=false",
+        to: "is_pitcher=true",
+        count: data.length,
+      });
+    }
+  }
+
   return { applied, errors };
 }
 
