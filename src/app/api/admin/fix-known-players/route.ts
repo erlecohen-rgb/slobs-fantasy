@@ -37,7 +37,7 @@ const KNOWN_FIXES: {
   },
 ];
 
-export async function POST() {
+async function applyFixes() {
   const supabase = createServiceClient();
   const applied: { from: string; to: string; count: number }[] = [];
   const errors: string[] = [];
@@ -62,5 +62,15 @@ export async function POST() {
     }
   }
 
-  return NextResponse.json({ applied, errors });
+  return { applied, errors };
+}
+
+export async function GET() {
+  const result = await applyFixes();
+  return NextResponse.json(result);
+}
+
+export async function POST() {
+  const result = await applyFixes();
+  return NextResponse.json(result);
 }
