@@ -16,11 +16,15 @@ interface Team {
   roster_players: RosterPlayer[];
 }
 
+const BATTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "UTIL", "DH"];
+
 export default function RosterPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/roster?league_id=01756471-3bd1-4e83-8533-093d9e97bb86")
@@ -36,6 +40,38 @@ export default function RosterPage() {
       })
       .catch(() => setLoading(false));
   }, []);
+
+  async function updatePosition(playerId: string, newPosition: string) {
+    setSavingId(playerId);
+    setErrorId(null);
+
+    // Optimistic update
+    setTeams((prev) =>
+      prev.map((team) => ({
+        ...team,
+        roster_players: team.roster_players.map((p) =>
+          p.id === playerId ? { ...p, primary_position: newPosition } : p
+        ),
+      }))
+    );
+
+    try {
+      const res = await fetch("/api/roster/player", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: playerId, primary_position: newPosition }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+    } catch {
+      setErrorId(playerId);
+      // Revert on failure by re-fetching
+      fetch("/api/roster?league_id=01756471-3bd1-4e83-8533-093d9e97bb86")
+        .then((r) => r.json())
+        .then((data) => setTeams(data.teams || []));
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
   const players = selectedTeam?.roster_players || [];
@@ -95,9 +131,24 @@ export default function RosterPage() {
             {batters.map((player) => (
               <tr key={player.id}>
                 <td className="px-4 py-2">
-                  <span className="inline-block bg-green-100 text-green-800 text-xs font-mono px-2 py-1 rounded">
-                    {player.primary_position}
-                  </span>
+                  <select
+                    value={player.primary_position}
+                    disabled={savingId === player.id}
+                    onChange={(e) => updatePosition(player.id, e.target.value)}
+                    className={`text-xs font-mono px-2 py-1 rounded border ${
+                      player.primary_position === "DH"
+                        ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+                        : "bg-green-100 text-green-800 border-green-200"
+                    } ${savingId === player.id ? "opacity-50" : ""} ${
+                      errorId === player.id ? "border-red-400" : ""
+                    }`}
+                  >
+                    {BATTER_POSITIONS.map((pos) => (
+                      <option key={pos} value={pos}>
+                        {pos}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td className="px-4 py-2 font-medium">{player.mlb_player_name}</td>
                 <td className="px-4 py-2 text-gray-500 font-mono text-sm">{player.mlb_team}</td>
