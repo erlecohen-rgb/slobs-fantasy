@@ -28,8 +28,8 @@ export default function RosterPage() {
       .then((data) => {
         const t = data.teams || [];
         setTeams(t);
-        // Default to Grumpy Grizzlies
-        const grizzlies = t.find((team: Team) => team.name === "Grumpy Grizzlies");
+        // Default to Cool Papas
+        const grizzlies = t.find((team: Team) => team.name === "Cool Papas");
         if (grizzlies) setSelectedTeamId(grizzlies.id);
         else if (t.length > 0) setSelectedTeamId(t[0].id);
         setLoading(false);
