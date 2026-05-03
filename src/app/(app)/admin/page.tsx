@@ -54,6 +54,8 @@ export default function AdminPage() {
   const [isAutoResolving, setIsAutoResolving] = useState(false);
   const [autoResolveResult, setAutoResolveResult] = useState<string | null>(null);
   const [lineupLockResult, setLineupLockResult] = useState<string | null>(null);
+  const [lineupWeek, setLineupWeek] = useState(1);
+  const [lineupTeamId, setLineupTeamId] = useState("");
 
   useEffect(() => {
     loadSeasons();
@@ -125,11 +127,21 @@ export default function AdminPage() {
       const res = await fetch("/api/admin/lineup-lock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locked, week_number: scoringWeek, season_year: new Date().getFullYear() }),
+        body: JSON.stringify({
+          locked,
+          week_number: lineupWeek,
+          season_year: new Date().getFullYear(),
+          team_id: lineupTeamId || undefined,
+        }),
       });
       const data = await res.json();
       if (data.error) setLineupLockResult(`Error: ${data.error}`);
-      else setLineupLockResult(`${locked ? "Locked" : "Unlocked"} ${data.updated} lineup entries for week ${scoringWeek}.`);
+      else {
+        const scope = lineupTeamId
+          ? allTeams.find((t) => t.id === lineupTeamId)?.name ?? "selected team"
+          : "all teams";
+        setLineupLockResult(`${locked ? "Locked" : "Unlocked"} ${data.updated} lineup entries for week ${lineupWeek} (${scope}).`);
+      }
     } catch {
       setLineupLockResult("Request failed");
     }
@@ -242,6 +254,10 @@ export default function AdminPage() {
     setIsCalculating(false);
     alert(`Scores calculated for week ${scoringWeek} (demo mode)`);
   }
+
+  const allTeams = seasons.flatMap((s) => s.teams ?? []).filter(
+    (t, i, arr) => arr.findIndex((x) => x.id === t.id) === i
+  );
 
   return (
     <div className="space-y-8">
@@ -636,18 +652,44 @@ export default function AdminPage() {
       {/* Lineup Lock Override */}
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold mb-4">Lineup Management</h2>
+        <div className="flex flex-wrap items-end gap-4 mb-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Week</label>
+            <input
+              type="number"
+              min={1}
+              max={26}
+              value={lineupWeek}
+              onChange={(e) => setLineupWeek(Number(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-2 w-24 text-sm"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
+            <select
+              value={lineupTeamId}
+              onChange={(e) => setLineupTeamId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            >
+              <option value="">All Teams</option>
+              {allTeams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="flex items-center gap-4">
           <button
             onClick={() => setLineupLock(true)}
             className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
           >
-            Lock All Lineups (Week {scoringWeek})
+            Lock Lineups
           </button>
           <button
             onClick={() => setLineupLock(false)}
             className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
           >
-            Unlock All Lineups
+            Unlock Lineups
           </button>
         </div>
         {lineupLockResult && (
