@@ -53,6 +53,7 @@ export default function AdminPage() {
   const [fixKnownResult, setFixKnownResult] = useState<string | null>(null);
   const [isAutoResolving, setIsAutoResolving] = useState(false);
   const [autoResolveResult, setAutoResolveResult] = useState<string | null>(null);
+  const [lineupLockResult, setLineupLockResult] = useState<string | null>(null);
 
   useEffect(() => {
     loadSeasons();
@@ -116,6 +117,22 @@ export default function AdminPage() {
       // ignore
     }
     setResolvingPlayer(null);
+  }
+
+  async function setLineupLock(locked: boolean) {
+    setLineupLockResult(null);
+    try {
+      const res = await fetch("/api/admin/lineup-lock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked, week_number: scoringWeek, season_year: new Date().getFullYear() }),
+      });
+      const data = await res.json();
+      if (data.error) setLineupLockResult(`Error: ${data.error}`);
+      else setLineupLockResult(`${locked ? "Locked" : "Unlocked"} ${data.updated} lineup entries for week ${scoringWeek}.`);
+    } catch {
+      setLineupLockResult("Request failed");
+    }
   }
 
   async function autoResolvePlayers() {
@@ -620,13 +637,22 @@ export default function AdminPage() {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-lg font-semibold mb-4">Lineup Management</h2>
         <div className="flex items-center gap-4">
-          <button className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium">
+          <button
+            onClick={() => setLineupLock(true)}
+            className="bg-amber-600 text-white px-4 py-2 rounded-lg hover:bg-amber-700 transition-colors text-sm font-medium"
+          >
             Lock All Lineups (Week {scoringWeek})
           </button>
-          <button className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium">
+          <button
+            onClick={() => setLineupLock(false)}
+            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium"
+          >
             Unlock All Lineups
           </button>
         </div>
+        {lineupLockResult && (
+          <p className="mt-2 text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded p-2">{lineupLockResult}</p>
+        )}
         <p className="text-xs text-gray-400 mt-2">
           Lineups automatically lock Monday at noon PT. Use these buttons for manual overrides.
         </p>
