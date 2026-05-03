@@ -2,18 +2,10 @@
 
 import { useState, useEffect } from "react";
 
-interface RosterPlayer {
-  id: string;
-  mlb_player_id: number;
-  mlb_player_name: string;
-  primary_position: string;
-  is_pitcher: boolean;
-}
-
 interface Team {
   id: string;
   name: string;
-  roster_players: RosterPlayer[];
+  roster_players: { id: string; mlb_player_id: number; mlb_player_name: string; primary_position: string; is_pitcher: boolean }[];
 }
 
 interface BreakdownItem {
@@ -32,7 +24,6 @@ interface SpecialAward {
 interface PlayerResult {
   mlbPlayerId: number;
   position: string;
-  role?: string;
   scoring: {
     points: number;
     qualified: boolean;
@@ -55,7 +46,6 @@ export default function ReportPage() {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [shortWeek, setShortWeek] = useState(false);
-  const [activatedIds, setActivatedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [report, setReport] = useState<WeekResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -70,59 +60,40 @@ export default function ReportPage() {
       });
   }, []);
 
-  // When team changes, load activated set from localStorage (same key as scores page)
-  useEffect(() => {
-    if (!selectedTeamId) return;
-    setReport(null);
-    setError(null);
-    try {
-      const cached = localStorage.getItem(`slobs-active-${selectedTeamId}`);
-      if (cached) {
-        setActivatedIds(new Set(JSON.parse(cached) as string[]));
-        return;
-      }
-    } catch { /* ignore */ }
-    // Default: all players active
-    const team = teams.find((t) => t.id === selectedTeamId);
-    setActivatedIds(new Set(team?.roster_players.map((p) => p.id) ?? []));
-  }, [selectedTeamId, teams]);
-
-  function togglePlayer(id: string) {
-    setActivatedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-    setReport(null);
-  }
-
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
-  const allPlayers = selectedTeam?.roster_players ?? [];
-  const batters = allPlayers.filter((p) => !isPitcherPos(p.primary_position));
-  const pitchers = allPlayers.filter((p) => isPitcherPos(p.primary_position));
 
   async function generateReport() {
-    if (!selectedTeam || !startDate || !endDate) return;
+    if (!selectedTeamId || !startDate || !endDate) return;
     setLoading(true);
     setError(null);
     setReport(null);
 
-    const players = allPlayers
-      .filter((p) => activatedIds.has(p.id) && p.mlb_player_id > 0)
-      .map((p) => ({
-        mlbPlayerId: p.mlb_player_id,
-        position: p.primary_position,
-        isPitcher: p.is_pitcher,
-        role: p.is_pitcher ? p.primary_position : undefined,
-      }));
-
-    if (players.length === 0) {
-      setError("No players selected with valid MLB IDs.");
-      setLoading(false);
-      return;
-    }
-
     try {
+      // 1. Fetch activated lineup from DB for this week
+      const lineupRes = await fetch(
+        `/api/roster/lineup?team_id=${selectedTeamId}&start_date=${startDate}&end_date=${endDate}`
+      );
+      const lineupData = await lineupRes.json();
+      if (lineupData.error) { setError(lineupData.error); return; }
+
+      const activated: { mlb_player_id: number; activated_position: string; is_pitcher: boolean }[] =
+        lineupData.players ?? [];
+
+      if (activated.length === 0) {
+        setError("No lineup saved for this team and week. Run Calculate on the Scores page first to save the lineup.");
+        return;
+      }
+
+      const players = activated
+        .filter((p) => p.mlb_player_id > 0)
+        .map((p) => ({
+          mlbPlayerId: p.mlb_player_id,
+          position: p.activated_position,
+          isPitcher: p.is_pitcher,
+          role: p.is_pitcher ? p.activated_position : undefined,
+        }));
+
+      // 2. Calculate scores for only those players
       const res = await fetch("/api/scores/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,8 +109,11 @@ export default function ReportPage() {
     }
   }
 
+  // Build name lookup from roster
   const playerNames = new Map<number, string>();
-  for (const p of allPlayers) playerNames.set(p.mlb_player_id, p.mlb_player_name);
+  for (const p of selectedTeam?.roster_players ?? []) {
+    playerNames.set(p.mlb_player_id, p.mlb_player_name);
+  }
 
   const reportBatters = report?.results.filter((r) => !isPitcherPos(r.position)) ?? [];
   const reportPitchers = report?.results.filter((r) => isPitcherPos(r.position)) ?? [];
@@ -153,15 +127,16 @@ export default function ReportPage() {
       {/* Controls — hidden when printing */}
       <div className="print:hidden">
         <h1 className="text-3xl font-bold mb-4">Points Report</h1>
-
         <div className="bg-white rounded-lg shadow p-6 space-y-4">
-          {/* Team + dates */}
+          <p className="text-sm text-gray-500">
+            Generates a report for the activated lineup saved when you last ran Calculate on the Scores page.
+          </p>
           <div className="flex flex-wrap gap-4 items-end">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Team</label>
               <select
                 value={selectedTeamId}
-                onChange={(e) => setSelectedTeamId(e.target.value)}
+                onChange={(e) => { setSelectedTeamId(e.target.value); setReport(null); setError(null); }}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
               >
                 {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
@@ -169,12 +144,12 @@ export default function ReportPage() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
+              <input type="date" value={startDate} onChange={(e) => { setStartDate(e.target.value); setReport(null); }}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
+              <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); setReport(null); }}
                 className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <label className="flex items-center gap-2 text-sm pb-2">
@@ -182,59 +157,11 @@ export default function ReportPage() {
                 className="rounded border-gray-300" />
               Short week
             </label>
-          </div>
-
-          {/* Player selection */}
-          {selectedTeam && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-sm font-medium text-gray-700">
-                  Activated players ({activatedIds.size} selected)
-                </p>
-                <div className="flex gap-3 text-xs">
-                  <button onClick={() => setActivatedIds(new Set(allPlayers.map((p) => p.id)))}
-                    className="text-blue-600 hover:underline">All</button>
-                  <button onClick={() => setActivatedIds(new Set())}
-                    className="text-blue-600 hover:underline">None</button>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-1">
-                {/* Batters */}
-                <div className="col-span-2 md:col-span-2">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Batters</p>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
-                    {batters.map((p) => (
-                      <label key={p.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                        <input type="checkbox" checked={activatedIds.has(p.id)}
-                          onChange={() => togglePlayer(p.id)} className="rounded border-gray-300" />
-                        <span className="font-mono text-xs text-gray-500 w-8">{p.primary_position}</span>
-                        <span className={p.mlb_player_id === 0 ? "text-gray-400" : ""}>{p.mlb_player_name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-                {/* Pitchers */}
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Pitchers</p>
-                  <div className="flex flex-col gap-0.5">
-                    {pitchers.map((p) => (
-                      <label key={p.id} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                        <input type="checkbox" checked={activatedIds.has(p.id)}
-                          onChange={() => togglePlayer(p.id)} className="rounded border-gray-300" />
-                        <span className="font-mono text-xs text-gray-500 w-8">{p.primary_position}</span>
-                        <span className={p.mlb_player_id === 0 ? "text-gray-400" : ""}>{p.mlb_player_name}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="flex items-center gap-3 pt-1">
-            <button onClick={generateReport}
-              disabled={loading || !selectedTeamId || !startDate || !endDate || activatedIds.size === 0}
-              className="bg-green-700 text-white px-5 py-2 rounded-lg hover:bg-green-800 disabled:opacity-50 text-sm font-medium">
+            <button
+              onClick={generateReport}
+              disabled={loading || !selectedTeamId || !startDate || !endDate}
+              className="bg-green-700 text-white px-5 py-2 rounded-lg hover:bg-green-800 disabled:opacity-50 text-sm font-medium"
+            >
               {loading ? "Calculating…" : "Generate Report"}
             </button>
             {report && (

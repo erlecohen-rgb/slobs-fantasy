@@ -58,3 +58,48 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ players: Array.from(seen.values()), weeks });
 }
+
+// POST /api/roster/lineup
+// Body: { team_id, start_date, active_roster_player_ids: string[] }
+// Upserts weekly_lineups for the week containing start_date.
+// Players in active_roster_player_ids get is_active=true, all others get is_active=false.
+export async function POST(request: NextRequest) {
+  const supabase = createServiceClient();
+  const { team_id, start_date, active_roster_player_ids } = await request.json();
+
+  if (!team_id || !start_date || !Array.isArray(active_roster_player_ids)) {
+    return NextResponse.json({ error: "team_id, start_date, and active_roster_player_ids required" }, { status: 400 });
+  }
+
+  const date = new Date(start_date);
+  const season_year = date.getFullYear();
+  const week_number = getWeekNumber(date);
+  const activeSet = new Set<string>(active_roster_player_ids);
+
+  // Fetch full roster to know all players and their mlb_player_id + position
+  const { data: roster, error: rosterErr } = await supabase
+    .from("roster_players")
+    .select("id, mlb_player_id, primary_position, is_pitcher")
+    .eq("team_id", team_id)
+    .is("dropped_at", null);
+
+  if (rosterErr) return NextResponse.json({ error: rosterErr.message }, { status: 500 });
+
+  const rows = (roster ?? []).map((p) => ({
+    team_id,
+    week_number,
+    season_year,
+    roster_player_id: p.id,
+    mlb_player_id: p.mlb_player_id,
+    activated_position: p.primary_position,
+    is_active: activeSet.has(p.id),
+  }));
+
+  const { error } = await supabase
+    .from("weekly_lineups")
+    .upsert(rows, { onConflict: "team_id,week_number,season_year,roster_player_id" });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ saved: rows.length, week_number, season_year });
+}

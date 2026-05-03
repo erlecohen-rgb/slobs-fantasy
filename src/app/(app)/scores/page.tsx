@@ -237,6 +237,17 @@ export default function ScoresPage() {
     }
 
     try {
+      // Persist lineup to DB so Report page can read it
+      fetch("/api/roster/lineup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          team_id: selectedTeamId,
+          start_date: startDate,
+          active_roster_player_ids: [...activePlayers],
+        }),
+      });
+
       const res = await fetch("/api/scores/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
