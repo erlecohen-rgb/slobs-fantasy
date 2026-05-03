@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   const seen = new Map<number, { mlb_player_id: number; activated_position: string; mlb_player_name: string; is_pitcher: boolean }>();
   for (const row of data ?? []) {
     if (!seen.has(row.mlb_player_id)) {
-      const rp = row.roster_players as { mlb_player_name: string; is_pitcher: boolean } | null;
+      const rp = (Array.isArray(row.roster_players) ? row.roster_players[0] : row.roster_players) as { mlb_player_name: string; is_pitcher: boolean } | null;
       seen.set(row.mlb_player_id, {
         mlb_player_id: row.mlb_player_id,
         activated_position: row.activated_position,
