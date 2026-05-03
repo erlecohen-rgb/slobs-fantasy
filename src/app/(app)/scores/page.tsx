@@ -237,8 +237,8 @@ export default function ScoresPage() {
     }
 
     try {
-      // Persist lineup to DB so Report page can read it
-      fetch("/api/roster/lineup", {
+      // Persist lineup to DB so Report page can read it (fire and forget)
+      void fetch("/api/roster/lineup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
