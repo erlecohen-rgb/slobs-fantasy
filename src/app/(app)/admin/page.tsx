@@ -51,6 +51,8 @@ export default function AdminPage() {
   const [resolvingPlayer, setResolvingPlayer] = useState<string | null>(null);
   const [isFixingKnown, setIsFixingKnown] = useState(false);
   const [fixKnownResult, setFixKnownResult] = useState<string | null>(null);
+  const [isAutoResolving, setIsAutoResolving] = useState(false);
+  const [autoResolveResult, setAutoResolveResult] = useState<string | null>(null);
 
   useEffect(() => {
     loadSeasons();
@@ -114,6 +116,23 @@ export default function AdminPage() {
       // ignore
     }
     setResolvingPlayer(null);
+  }
+
+  async function autoResolvePlayers() {
+    setIsAutoResolving(true);
+    setAutoResolveResult(null);
+    try {
+      const res = await fetch("/api/admin/auto-resolve-players", { method: "POST" });
+      const data = await res.json();
+      const lines: string[] = [];
+      for (const r of data.resolved || []) lines.push(`✓ ${r.name} → ${r.matched} (${r.team}, ID: ${r.id})`);
+      for (const f of data.failed || []) lines.push(`✗ ${f.name}: ${f.reason}`);
+      setAutoResolveResult(lines.join("\n") || "Nothing to resolve");
+      await loadUnresolvedPlayers();
+    } catch {
+      setAutoResolveResult("Request failed");
+    }
+    setIsAutoResolving(false);
   }
 
   async function fixKnownPlayers() {
@@ -234,12 +253,26 @@ export default function AdminPage() {
         <div className="bg-white rounded-lg shadow p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">Unresolved Players</h2>
-            {unresolvedCount === 0 ? (
-              <span className="text-sm text-green-700 font-medium">All players resolved</span>
-            ) : (
-              <span className="text-sm text-amber-600 font-medium">{unresolvedCount} pending</span>
-            )}
+            <div className="flex items-center gap-3">
+              {unresolvedCount === 0 ? (
+                <span className="text-sm text-green-700 font-medium">All players resolved</span>
+              ) : (
+                <span className="text-sm text-amber-600 font-medium">{unresolvedCount} pending</span>
+              )}
+              {unresolvedCount !== null && unresolvedCount > 0 && (
+                <button
+                  onClick={autoResolvePlayers}
+                  disabled={isAutoResolving}
+                  className="bg-blue-600 text-white px-4 py-1.5 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium"
+                >
+                  {isAutoResolving ? "Resolving..." : "Auto-Resolve All"}
+                </button>
+              )}
+            </div>
           </div>
+          {autoResolveResult && (
+            <pre className="mb-4 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{autoResolveResult}</pre>
+          )}
           {unresolvedCount === 0 ? (
             <p className="text-sm text-gray-500">No players with missing MLB IDs.</p>
           ) : (
