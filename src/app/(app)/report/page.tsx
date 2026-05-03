@@ -75,16 +75,31 @@ export default function ReportPage() {
     setError(null);
     setReport(null);
 
-    const players = (selectedTeam.roster_players || [])
-      .filter((p) => p.mlb_player_id > 0)
-      .map((p) => ({
-        mlbPlayerId: p.mlb_player_id,
-        position: p.primary_position,
-        isPitcher: p.is_pitcher,
-        role: p.is_pitcher ? p.primary_position : undefined,
-      }));
-
     try {
+      // Fetch only activated lineup players for the date range
+      const lineupRes = await fetch(
+        `/api/roster/lineup?team_id=${selectedTeamId}&start_date=${startDate}&end_date=${endDate}`
+      );
+      const lineupData = await lineupRes.json();
+      if (lineupData.error) { setError(lineupData.error); return; }
+
+      const activatedPlayers: { mlb_player_id: number; activated_position: string; is_pitcher: boolean }[] =
+        lineupData.players ?? [];
+
+      if (activatedPlayers.length === 0) {
+        setError("No activated players found for this team and date range. Set lineups first.");
+        return;
+      }
+
+      const players = activatedPlayers
+        .filter((p) => p.mlb_player_id > 0)
+        .map((p) => ({
+          mlbPlayerId: p.mlb_player_id,
+          position: p.activated_position,
+          isPitcher: p.is_pitcher,
+          role: p.is_pitcher ? p.activated_position : undefined,
+        }));
+
       const res = await fetch("/api/scores/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,11 +115,13 @@ export default function ReportPage() {
     }
   }
 
-  // Build player name lookup from roster
+  // Build player name lookup from full roster
   const playerNames = new Map<number, string>();
   for (const p of selectedTeam?.roster_players ?? []) {
     playerNames.set(p.mlb_player_id, p.mlb_player_name);
   }
+  // Also use any names returned from lineup endpoint (may differ slightly)
+
 
   const batters = report?.results.filter((r) => r.position !== "SP" && r.position !== "RP") ?? [];
   const pitchers = report?.results.filter((r) => r.position === "SP" || r.position === "RP") ?? [];
