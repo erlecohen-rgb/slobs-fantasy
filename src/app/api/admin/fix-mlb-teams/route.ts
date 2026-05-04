@@ -1,9 +1,32 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { getActiveRosterPlayers, getMLBTeams } from "@/lib/mlb-api";
+
+const MLB_API_BASE = "https://statsapi.mlb.com/api/v1";
+
+interface MlbPerson {
+  id: number;
+  lastName: string;
+  firstName: string;
+  currentTeam?: { abbreviation?: string };
+}
+
+async function getAllPlayersWithTeams(season: number): Promise<MlbPerson[]> {
+  const res = await fetch(
+    `${MLB_API_BASE}/sports/1/players?season=${season}&hydrate=currentTeam`
+  );
+  const data = await res.json();
+  return data.people || [];
+}
+
+function parseName(stored: string): { lastName: string; initial: string } {
+  const comma = stored.indexOf(",");
+  if (comma === -1) return { lastName: stored.trim(), initial: "" };
+  const lastName = stored.slice(0, comma).trim();
+  const initial = stored.slice(comma + 1).trim()[0]?.toUpperCase() ?? "";
+  return { lastName, initial };
+}
 
 // POST /api/admin/fix-mlb-teams
-// Looks up current team for every roster_player where mlb_team='TBD'.
 export async function POST() {
   const supabase = createServiceClient();
 
@@ -11,46 +34,49 @@ export async function POST() {
     .from("roster_players")
     .select("id, mlb_player_id, mlb_player_name")
     .eq("mlb_team", "TBD")
-    .neq("mlb_player_id", 0)
     .is("dropped_at", null);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!players?.length) return NextResponse.json({ updated: [], failed: [], message: "No TBD teams found" });
 
-  // Fetch teams first to build teamId → abbreviation map
-  const [activeRoster, mlbTeams] = await Promise.all([
-    getActiveRosterPlayers(),
-    getMLBTeams(),
-  ]);
+  const season = new Date().getFullYear();
+  const allMlbPlayers = await getAllPlayersWithTeams(season);
 
-  const teamAbbr = new Map<number, string>();
-  for (const t of mlbTeams) {
-    teamAbbr.set(t.id, t.abbreviation);
-  }
-
-  // Build playerId → team abbreviation using the team map
-  const playerTeam = new Map<number, string>();
-  for (const p of activeRoster) {
-    const teamId = (p.currentTeam as { id?: number } | undefined)?.id;
-    if (teamId) {
-      const abbr = teamAbbr.get(teamId);
-      if (abbr) playerTeam.set(p.id, abbr);
-    }
+  const byLastName = new Map<string, MlbPerson[]>();
+  for (const p of allMlbPlayers) {
+    const key = p.lastName?.toLowerCase() ?? "";
+    if (!byLastName.has(key)) byLastName.set(key, []);
+    byLastName.get(key)!.push(p);
   }
 
   const updated: { name: string; team: string }[] = [];
   const failed: { name: string; reason: string }[] = [];
 
   for (const player of players) {
-    const team = playerTeam.get(player.mlb_player_id);
+    const { lastName, initial } = parseName(player.mlb_player_name);
+    const candidates = byLastName.get(lastName.toLowerCase()) ?? [];
+
+    const matches = initial
+      ? candidates.filter((p) => p.firstName?.toUpperCase().startsWith(initial))
+      : candidates;
+
+    if (matches.length === 0) {
+      failed.push({ name: player.mlb_player_name, reason: `No MLB player found for "${lastName}"` });
+      continue;
+    }
+
+    const best =
+      matches.find((p) => p.lastName?.toLowerCase() === lastName.toLowerCase()) ?? matches[0];
+
+    const team = best.currentTeam?.abbreviation;
     if (!team) {
-      failed.push({ name: player.mlb_player_name, reason: "Not on active MLB roster (IL, minors, or FA)" });
+      failed.push({ name: player.mlb_player_name, reason: "Player found but no current team" });
       continue;
     }
 
     const { error: updateErr } = await supabase
       .from("roster_players")
-      .update({ mlb_team: team })
+      .update({ mlb_team: team, mlb_player_id: best.id })
       .eq("id", player.id);
 
     if (updateErr) {

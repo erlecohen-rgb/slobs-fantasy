@@ -47,7 +47,7 @@ export async function searchPlayers(query: string): Promise<MLBPlayer[]> {
 export async function getActiveRosterPlayers(season?: number): Promise<MLBPlayer[]> {
   const yr = season || new Date().getFullYear();
   const res = await fetch(
-    `${MLB_API_BASE}/sports/1/players?season=${yr}&activeStatus=ACTIVE`
+    `${MLB_API_BASE}/sports/1/players?season=${yr}&activeStatus=ACTIVE&hydrate=currentTeam`
   );
   const data = await res.json();
   return data.people || [];
