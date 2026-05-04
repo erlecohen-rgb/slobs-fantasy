@@ -35,6 +35,22 @@ const KNOWN_FIXES: {
     primary_position: "RP",
     is_pitcher: true,
   },
+  {
+    namePattern: "j caminero",
+    mlb_player_name: "Junior Caminero",
+    mlb_player_id: 686469,
+    mlb_team: "TB",
+    primary_position: "3B",
+    is_pitcher: false,
+  },
+  {
+    namePattern: "t hernandez",
+    mlb_player_name: "Teoscar Hernandez",
+    mlb_player_id: 606192,
+    mlb_team: "LAD",
+    primary_position: "LF",
+    is_pitcher: false,
+  },
 ];
 
 async function applyFixes() {
