@@ -92,18 +92,23 @@ async function calculateBatterScore(
     getFieldingGameLog(mlbPlayerId, startDate, endDate),
   ]);
 
-  // Position matching: "OF" matches LF/CF/RF
+  // Position matching: "OF" matches LF/CF/RF; "UTIL" matches anything
   const OF_POSITIONS = ["LF", "CF", "RF", "OF"];
   function positionMatches(activatedPos: string, fieldedPos: string): boolean {
+    if (activatedPos === "UTIL") return true;
     if (activatedPos === fieldedPos) return true;
     if (activatedPos === "OF" && OF_POSITIONS.includes(fieldedPos)) return true;
     return false;
   }
 
-  // Count games played at the activated position
-  const gamesAtPosition = fielding.filter(
-    (g: Record<string, unknown>) => positionMatches(position, g.position as string)
-  ).length;
+  // DH/UTIL: count all hitting games (no fielding entry expected)
+  // All others: count fielding games at the activated position
+  const isPositionFlex = position === "DH" || position === "UTIL";
+  const gamesAtPosition = isPositionFlex
+    ? hitting.length
+    : fielding.filter(
+        (g: Record<string, unknown>) => positionMatches(position, g.position as string)
+      ).length;
 
   // Build game log for special award detection
   const gameLog: BatterGameLog[] = hitting.map((g: Record<string, unknown>) => {

@@ -128,11 +128,11 @@ export function scoreBatter(
   let totalPoints = 0;
 
   // Qualification check: must play 2 games at position (1 in short week)
-  // DH has no positional requirement
+  // DH and UTIL have no positional requirement — any game played qualifies
   const requiredGames = isShortWeek ? 1 : 2;
-  const isDH = position === "DH";
+  const isPositionFlex = position === "DH" || position === "UTIL";
 
-  const isDisqualified = !isDH && stats.gamesAtPosition < requiredGames;
+  const isDisqualified = !isPositionFlex && stats.gamesAtPosition < requiredGames;
   const dqReason = isDisqualified
     ? `Must play ${requiredGames} game(s) at ${position} (played ${stats.gamesAtPosition})`
     : undefined;
