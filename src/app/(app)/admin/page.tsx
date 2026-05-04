@@ -51,6 +51,8 @@ export default function AdminPage() {
   const [resolvingPlayer, setResolvingPlayer] = useState<string | null>(null);
   const [isFixingKnown, setIsFixingKnown] = useState(false);
   const [fixKnownResult, setFixKnownResult] = useState<string | null>(null);
+  const [isFixingTeams, setIsFixingTeams] = useState(false);
+  const [fixTeamsResult, setFixTeamsResult] = useState<string | null>(null);
   const [isAutoResolving, setIsAutoResolving] = useState(false);
   const [autoResolveResult, setAutoResolveResult] = useState<string | null>(null);
   const [lineupLockResult, setLineupLockResult] = useState<string | null>(null);
@@ -182,6 +184,22 @@ export default function AdminPage() {
     setIsFixingKnown(false);
   }
 
+  async function fixMlbTeams() {
+    setIsFixingTeams(true);
+    setFixTeamsResult(null);
+    try {
+      const res = await fetch("/api/admin/fix-mlb-teams", { method: "POST" });
+      const data = await res.json();
+      const lines: string[] = [];
+      for (const r of data.updated || []) lines.push(`✓ ${r.name} → ${r.team}`);
+      for (const f of data.failed || []) lines.push(`✗ ${f.name}: ${f.reason}`);
+      setFixTeamsResult(lines.join("\n") || "Nothing to update");
+    } catch {
+      setFixTeamsResult("Request failed");
+    }
+    setIsFixingTeams(false);
+  }
+
   async function seedLeague() {
     setIsSeeding(true);
     setSeedResult(null);
@@ -269,15 +287,27 @@ export default function AdminPage() {
         <p className="text-sm text-gray-600 mb-4">
           Apply corrections for players imported with abbreviated or misspelled names.
         </p>
-        <button
-          onClick={fixKnownPlayers}
-          disabled={isFixingKnown}
-          className="bg-amber-600 text-white px-6 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors text-sm font-medium"
-        >
-          {isFixingKnown ? "Applying..." : "Apply Known Fixes"}
-        </button>
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={fixKnownPlayers}
+            disabled={isFixingKnown}
+            className="bg-amber-600 text-white px-6 py-2 rounded-lg hover:bg-amber-700 disabled:opacity-50 transition-colors text-sm font-medium"
+          >
+            {isFixingKnown ? "Applying..." : "Apply Known Fixes"}
+          </button>
+          <button
+            onClick={fixMlbTeams}
+            disabled={isFixingTeams}
+            className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors text-sm font-medium"
+          >
+            {isFixingTeams ? "Fixing..." : "Fix MLB Teams (TBD)"}
+          </button>
+        </div>
         {fixKnownResult && (
           <pre className="mt-3 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixKnownResult}</pre>
+        )}
+        {fixTeamsResult && (
+          <pre className="mt-3 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixTeamsResult}</pre>
         )}
       </div>
 
