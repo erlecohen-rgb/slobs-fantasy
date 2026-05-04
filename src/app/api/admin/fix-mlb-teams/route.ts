@@ -1,14 +1,12 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { getActiveRosterPlayers } from "@/lib/mlb-api";
+import { getActiveRosterPlayers, getMLBTeams } from "@/lib/mlb-api";
 
 // POST /api/admin/fix-mlb-teams
-// Fetches all active MLB roster players (includes currentTeam.abbreviation),
-// then updates any roster_player rows where mlb_team='TBD'.
+// Looks up current team for every roster_player where mlb_team='TBD'.
 export async function POST() {
   const supabase = createServiceClient();
 
-  // Fetch roster players that need fixing
   const { data: players, error } = await supabase
     .from("roster_players")
     .select("id, mlb_player_id, mlb_player_name")
@@ -19,12 +17,24 @@ export async function POST() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!players?.length) return NextResponse.json({ updated: [], failed: [], message: "No TBD teams found" });
 
-  // Build a map of mlb_player_id → team abbreviation from the full active roster
-  const activeRoster = await getActiveRosterPlayers();
-  const teamMap = new Map<number, string>();
+  // Fetch teams first to build teamId → abbreviation map
+  const [activeRoster, mlbTeams] = await Promise.all([
+    getActiveRosterPlayers(),
+    getMLBTeams(),
+  ]);
+
+  const teamAbbr = new Map<number, string>();
+  for (const t of mlbTeams) {
+    teamAbbr.set(t.id, t.abbreviation);
+  }
+
+  // Build playerId → team abbreviation using the team map
+  const playerTeam = new Map<number, string>();
   for (const p of activeRoster) {
-    if (p.currentTeam?.abbreviation) {
-      teamMap.set(p.id, p.currentTeam.abbreviation);
+    const teamId = (p.currentTeam as { id?: number } | undefined)?.id;
+    if (teamId) {
+      const abbr = teamAbbr.get(teamId);
+      if (abbr) playerTeam.set(p.id, abbr);
     }
   }
 
@@ -32,9 +42,9 @@ export async function POST() {
   const failed: { name: string; reason: string }[] = [];
 
   for (const player of players) {
-    const team = teamMap.get(player.mlb_player_id);
+    const team = playerTeam.get(player.mlb_player_id);
     if (!team) {
-      failed.push({ name: player.mlb_player_name, reason: "Not found on active MLB rosters (may be IL, minors, or FA)" });
+      failed.push({ name: player.mlb_player_name, reason: "Not on active MLB roster (IL, minors, or FA)" });
       continue;
     }
 
