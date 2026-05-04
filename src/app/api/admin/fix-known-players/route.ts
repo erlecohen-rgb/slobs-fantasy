@@ -47,7 +47,7 @@ const KNOWN_FIXES: {
   { namePattern: "Hernandez, T",  mlb_player_name: "Teoscar Hernandez",  mlb_player_id: 606192, mlb_team: "LAD", primary_position: "LF", is_pitcher: false },
   { namePattern: "Iglesias, R",   mlb_player_name: "Raisel Iglesias",    mlb_player_id: 609350, mlb_team: "LAA", primary_position: "RP", is_pitcher: true  },
   { namePattern: "Cabrera, E",    mlb_player_name: "Edward Cabrera",     mlb_player_id: 677506, mlb_team: "MIA", primary_position: "SP", is_pitcher: true  },
-  { namePattern: "Chourio, J",    mlb_player_name: "Jackson Chourio",    mlb_player_id: 694192, mlb_team: "MIL", primary_position: "CF", is_pitcher: false },
+  { namePattern: "Chourio, J",    mlb_player_name: "Jackson Chourio",    mlb_player_id: 694192, mlb_team: "MIL", primary_position: "OF", is_pitcher: false },
   { namePattern: "Castillo, L",   mlb_player_name: "Luis Castillo",      mlb_player_id: 650523, mlb_team: "SEA", primary_position: "SP", is_pitcher: true  },
   { namePattern: "Cole, G",       mlb_player_name: "Gerrit Cole",         mlb_player_id: 543037, mlb_team: "NYY", primary_position: "SP", is_pitcher: true  },
   { namePattern: "Hader, J",      mlb_player_name: "Josh Hader",          mlb_player_id: 595978, mlb_team: "HOU", primary_position: "RP", is_pitcher: true  },
@@ -55,7 +55,23 @@ const KNOWN_FIXES: {
   { namePattern: "Lodolo, N",     mlb_player_name: "Nick Lodolo",         mlb_player_id: 672382, mlb_team: "CIN", primary_position: "SP", is_pitcher: true  },
   { namePattern: "Caminero, J",   mlb_player_name: "Junior Caminero",     mlb_player_id: 686469, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
   { namePattern: "j caminero",    mlb_player_name: "Junior Caminero",     mlb_player_id: 686469, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
+  { namePattern: "Junior Caminero", mlb_player_name: "Junior Caminero",   mlb_player_id: 686469, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
   { namePattern: "t hernandez",   mlb_player_name: "Teoscar Hernandez",   mlb_player_id: 606192, mlb_team: "LAD", primary_position: "LF", is_pitcher: false },
+  // Also cover full names in case auto-resolve already ran and changed the stored name
+  { namePattern: "Jackson Chourio", mlb_player_name: "Jackson Chourio",   mlb_player_id: 694192, mlb_team: "MIL", primary_position: "OF", is_pitcher: false },
+  // Gladhanders players with abbreviated/incorrect names
+  // "Alvarez, F" was incorrectly matched — the intended player is Yordan Alvarez
+  { namePattern: "Alvarez, F",      mlb_player_name: "Yordan Alvarez",    mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
+  { namePattern: "Francisco Alvarez", mlb_player_name: "Yordan Alvarez",  mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
+  { namePattern: "Yordan Alvarez",  mlb_player_name: "Yordan Alvarez",    mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
+  { namePattern: "Marte, K",        mlb_player_name: "Ketel Marte",       mlb_player_id: 606466, mlb_team: "ARI", primary_position: "2B", is_pitcher: false },
+  { namePattern: "Ketel Marte",     mlb_player_name: "Ketel Marte",       mlb_player_id: 606466, mlb_team: "ARI", primary_position: "2B", is_pitcher: false },
+  { namePattern: "Barger, A",       mlb_player_name: "Addison Barger",    mlb_player_id: 683737, mlb_team: "TOR", primary_position: "3B", is_pitcher: false },
+  { namePattern: "Addison Barger",  mlb_player_name: "Addison Barger",    mlb_player_id: 683737, mlb_team: "TOR", primary_position: "3B", is_pitcher: false },
+  { namePattern: "Betts, M",        mlb_player_name: "Mookie Betts",      mlb_player_id: 605141, mlb_team: "LAD", primary_position: "SS", is_pitcher: false },
+  { namePattern: "Mookie Betts",    mlb_player_name: "Mookie Betts",      mlb_player_id: 605141, mlb_team: "LAD", primary_position: "SS", is_pitcher: false },
+  { namePattern: "Yelich, C",       mlb_player_name: "Christian Yelich",  mlb_player_id: 592885, mlb_team: "MIL", primary_position: "LF", is_pitcher: false },
+  { namePattern: "Christian Yelich", mlb_player_name: "Christian Yelich", mlb_player_id: 592885, mlb_team: "MIL", primary_position: "LF", is_pitcher: false },
 ];
 
 async function applyFixes() {
