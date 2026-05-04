@@ -17,6 +17,7 @@ interface Team {
 }
 
 const BATTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "UTIL", "DH"];
+const PITCHER_POSITIONS = ["SP", "RP"];
 
 export default function RosterPage() {
   const [teams, setTeams] = useState<Team[]>([]);
@@ -172,9 +173,16 @@ export default function RosterPage() {
             {pitchers.map((player) => (
               <tr key={player.id}>
                 <td className="px-4 py-2">
-                  <span className="inline-block bg-blue-100 text-blue-800 text-xs font-mono px-2 py-1 rounded">
-                    {player.primary_position}
-                  </span>
+                  <select
+                    value={player.primary_position}
+                    disabled={savingId === player.id}
+                    onChange={(e) => updatePosition(player.id, e.target.value)}
+                    className={`text-xs font-mono px-2 py-1 rounded border bg-blue-100 text-blue-800 border-blue-200 ${savingId === player.id ? "opacity-50" : ""} ${errorId === player.id ? "border-red-400" : ""}`}
+                  >
+                    {PITCHER_POSITIONS.map((pos) => (
+                      <option key={pos} value={pos}>{pos}</option>
+                    ))}
+                  </select>
                 </td>
                 <td className="px-4 py-2 font-medium">{player.mlb_player_name}</td>
                 <td className="px-4 py-2 text-gray-500 font-mono text-sm">{player.mlb_team}</td>
