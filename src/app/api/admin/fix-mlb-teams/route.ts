@@ -1,8 +1,24 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { searchPlayers } from "@/lib/mlb-api";
 
 const MLB_API_BASE = "https://statsapi.mlb.com/api/v1";
+
+interface MlbPerson {
+  id: number;
+  lastName: string;
+  firstName: string;
+  currentTeam?: { abbreviation?: string };
+}
+
+// Fetch ALL players on 40-man rosters for the season (includes IL).
+// No activeStatus filter so we get everyone with a current team.
+async function getAllPlayersWithTeams(season: number): Promise<MlbPerson[]> {
+  const res = await fetch(
+    `${MLB_API_BASE}/sports/1/players?season=${season}&hydrate=currentTeam`
+  );
+  const data = await res.json();
+  return data.people || [];
+}
 
 // Parse "LastName, F" → { lastName, initial }
 function parseName(stored: string): { lastName: string; initial: string } {
@@ -14,7 +30,6 @@ function parseName(stored: string): { lastName: string; initial: string } {
 }
 
 // POST /api/admin/fix-mlb-teams
-// Looks up current team for every roster_player where mlb_team='TBD'.
 export async function POST() {
   const supabase = createServiceClient();
 
@@ -27,62 +42,47 @@ export async function POST() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!players?.length) return NextResponse.json({ updated: [], failed: [], message: "No TBD teams found" });
 
-  // Search by last name for each player and collect resolved MLB player IDs
-  const resolvedIds = new Map<string, number>(); // roster player id → mlb player id
-  const searchFailed: string[] = [];
+  const season = new Date().getFullYear();
+  const allMlbPlayers = await getAllPlayersWithTeams(season);
 
-  for (const player of players) {
-    const { lastName, initial } = parseName(player.mlb_player_name);
-    const results = await searchPlayers(lastName);
-
-    // Filter to active players whose first name starts with the initial
-    const matches = results.filter((p) =>
-      !initial || p.firstName?.toUpperCase().startsWith(initial)
-    );
-
-    if (matches.length === 0) {
-      searchFailed.push(player.mlb_player_name);
-    } else {
-      // Prefer exact last name match; fall back to first result
-      const best =
-        matches.find((p) => p.lastName?.toLowerCase() === lastName.toLowerCase()) ?? matches[0];
-      resolvedIds.set(player.id, best.id);
-    }
-  }
-
-  // Batch-lookup resolved MLB IDs with currentTeam hydrated
-  const mlbIds = [...new Set(resolvedIds.values())].join(",");
-  const teamByMlbId = new Map<number, string>();
-
-  if (mlbIds) {
-    const res = await fetch(`${MLB_API_BASE}/people?personIds=${mlbIds}&hydrate=currentTeam`);
-    const mlbData = await res.json();
-    for (const p of mlbData.people ?? []) {
-      const abbr = p.currentTeam?.abbreviation;
-      if (abbr) teamByMlbId.set(p.id, abbr);
-    }
+  // Index by lowercase last name for fast lookup
+  const byLastName = new Map<string, MlbPerson[]>();
+  for (const p of allMlbPlayers) {
+    const key = p.lastName?.toLowerCase() ?? "";
+    if (!byLastName.has(key)) byLastName.set(key, []);
+    byLastName.get(key)!.push(p);
   }
 
   const updated: { name: string; team: string }[] = [];
   const failed: { name: string; reason: string }[] = [];
 
   for (const player of players) {
-    if (searchFailed.includes(player.mlb_player_name)) {
-      failed.push({ name: player.mlb_player_name, reason: "No MLB player found by name" });
+    const { lastName, initial } = parseName(player.mlb_player_name);
+    const candidates = byLastName.get(lastName.toLowerCase()) ?? [];
+
+    // Filter by first initial if we have one
+    const matches = initial
+      ? candidates.filter((p) => p.firstName?.toUpperCase().startsWith(initial))
+      : candidates;
+
+    if (matches.length === 0) {
+      failed.push({ name: player.mlb_player_name, reason: `No MLB player found for "${lastName}"` });
       continue;
     }
 
-    const mlbId = resolvedIds.get(player.id);
-    const team = mlbId ? teamByMlbId.get(mlbId) : undefined;
+    // Pick the best match (exact last name case, then first result)
+    const best =
+      matches.find((p) => p.lastName?.toLowerCase() === lastName.toLowerCase()) ?? matches[0];
 
+    const team = best.currentTeam?.abbreviation;
     if (!team) {
-      failed.push({ name: player.mlb_player_name, reason: "Player found but no current team (IL or minors)" });
+      failed.push({ name: player.mlb_player_name, reason: "Player found but no current team" });
       continue;
     }
 
     const { error: updateErr } = await supabase
       .from("roster_players")
-      .update({ mlb_team: team, mlb_player_id: mlbId! })
+      .update({ mlb_team: team, mlb_player_id: best.id })
       .eq("id", player.id);
 
     if (updateErr) {
