@@ -52,7 +52,7 @@ async function applyFixes() {
         primary_position: fix.primary_position,
         is_pitcher: fix.is_pitcher,
       })
-      .eq("mlb_player_name", fix.namePattern)
+      .ilike("mlb_player_name", fix.namePattern)
       .select();
 
     if (error) {
