@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { getActiveRosterPlayers } from "@/lib/mlb-api";
+
+const MLB_API_BASE = "https://statsapi.mlb.com/api/v1";
 
 // POST /api/admin/fix-mlb-teams
 // Looks up current team for every roster_player where mlb_team='TBD'.
@@ -17,19 +18,17 @@ export async function POST() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (!players?.length) return NextResponse.json({ updated: [], failed: [], message: "No TBD teams found" });
 
-  // Fetch active roster with currentTeam hydrated (includes abbreviation)
-  const activeRoster = await getActiveRosterPlayers();
+  // Batch-lookup all player IDs directly with currentTeam hydrated
+  const personIds = players.map((p) => p.mlb_player_id).join(",");
+  const res = await fetch(`${MLB_API_BASE}/people?personIds=${personIds}&hydrate=currentTeam`);
+  const mlbData = await res.json();
+  const mlbPeople: { id: number; currentTeam?: { abbreviation?: string } }[] = mlbData.people || [];
 
-  // Build playerId → team abbreviation from hydrated currentTeam
+  // Build playerId → team abbreviation
   const playerTeam = new Map<number, string>();
-  for (const p of activeRoster) {
-    const team = p.currentTeam;
-    if (team?.abbreviation) {
-      playerTeam.set(p.id, team.abbreviation);
-    } else if (team?.id) {
-      // fallback: use numeric team id as string if abbreviation missing
-      playerTeam.set(p.id, String(team.id));
-    }
+  for (const p of mlbPeople) {
+    const abbr = p.currentTeam?.abbreviation;
+    if (abbr) playerTeam.set(p.id, abbr);
   }
 
   const updated: { name: string; team: string }[] = [];
@@ -38,7 +37,7 @@ export async function POST() {
   for (const player of players) {
     const team = playerTeam.get(player.mlb_player_id);
     if (!team) {
-      failed.push({ name: player.mlb_player_name, reason: "Not on active MLB roster (IL, minors, or FA)" });
+      failed.push({ name: player.mlb_player_name, reason: "No current team found (may be IL, minors, or invalid ID)" });
       continue;
     }
 
@@ -54,5 +53,9 @@ export async function POST() {
     }
   }
 
-  return NextResponse.json({ updated, failed });
+  return NextResponse.json({
+    updated,
+    failed,
+    debug: { lookedUpIds: players.map((p) => ({ name: p.mlb_player_name, id: p.mlb_player_id })), foundInMlb: mlbPeople.length },
+  });
 }
