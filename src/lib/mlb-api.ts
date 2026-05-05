@@ -34,13 +34,15 @@ export interface MLBGameLog {
   stat: Record<string, number | string>;
 }
 
-// Search for players by name
+// Search for players by name using the full active roster (avoids the /people/search 403)
 export async function searchPlayers(query: string): Promise<MLBPlayer[]> {
-  const res = await fetch(
-    `${MLB_API_BASE}/people/search?names=${encodeURIComponent(query)}&sportId=1&active=true`
+  const allPlayers = await getActiveRosterPlayers();
+  const q = query.toLowerCase();
+  return allPlayers.filter(
+    (p) =>
+      p.fullName?.toLowerCase().includes(q) ||
+      p.lastName?.toLowerCase().includes(q)
   );
-  const data = await res.json();
-  return data.people || [];
 }
 
 // Get all players on active MLB rosters for current season
@@ -156,7 +158,7 @@ export async function getSchedule(startDate: string, endDate: string) {
 
 // Get player info by ID
 export async function getPlayer(playerId: number): Promise<MLBPlayer | null> {
-  const res = await fetch(`${MLB_API_BASE}/people/${playerId}`);
+  const res = await fetch(`${MLB_API_BASE}/people/${playerId}?hydrate=currentTeam`);
   const data = await res.json();
   return data.people?.[0] || null;
 }

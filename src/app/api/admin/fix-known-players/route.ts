@@ -74,6 +74,7 @@ const KNOWN_FIXES: {
   { namePattern: "Christian Yelich", mlb_player_name: "Christian Yelich", mlb_player_id: 592885, mlb_team: "MIL", primary_position: "LF", is_pitcher: false },
   { namePattern: "Ryan, J",           mlb_player_name: "Joe Ryan",         mlb_player_id: 657746, mlb_team: "MIN", primary_position: "SP", is_pitcher: true  },
   { namePattern: "Joe Ryan",          mlb_player_name: "Joe Ryan",         mlb_player_id: 657746, mlb_team: "MIN", primary_position: "SP", is_pitcher: true  },
+  { namePattern: "J Ryan",            mlb_player_name: "Joe Ryan",         mlb_player_id: 657746, mlb_team: "MIN", primary_position: "SP", is_pitcher: true  },
 ];
 
 async function applyFixes() {
