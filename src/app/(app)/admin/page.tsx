@@ -53,6 +53,8 @@ export default function AdminPage() {
   const [fixKnownResult, setFixKnownResult] = useState<string | null>(null);
   const [isFixingTeams, setIsFixingTeams] = useState(false);
   const [fixTeamsResult, setFixTeamsResult] = useState<string | null>(null);
+  const [isFixingGladhanders, setIsFixingGladhanders] = useState(false);
+  const [fixGladhhandersResult, setFixGladhhandersResult] = useState<string | null>(null);
   const [isAutoResolving, setIsAutoResolving] = useState(false);
   const [autoResolveResult, setAutoResolveResult] = useState<string | null>(null);
   const [lineupLockResult, setLineupLockResult] = useState<string | null>(null);
@@ -184,6 +186,19 @@ export default function AdminPage() {
     setIsFixingKnown(false);
   }
 
+  async function fixGladhanders() {
+    setIsFixingGladhanders(true);
+    setFixGladhhandersResult(null);
+    try {
+      const res = await fetch("/api/admin/fix-gladhanders-ryan", { method: "POST" });
+      const data = await res.json();
+      setFixGladhhandersResult((data.actions || []).join("\n") || "No changes");
+    } catch {
+      setFixGladhhandersResult("Request failed");
+    }
+    setIsFixingGladhanders(false);
+  }
+
   async function fixMlbTeams() {
     setIsFixingTeams(true);
     setFixTeamsResult(null);
@@ -302,12 +317,22 @@ export default function AdminPage() {
           >
             {isFixingTeams ? "Fixing..." : "Fix MLB Teams (TBD)"}
           </button>
+          <button
+            onClick={fixGladhanders}
+            disabled={isFixingGladhanders}
+            className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors text-sm font-medium"
+          >
+            {isFixingGladhanders ? "Fixing..." : "Fix Gladhanders — Joe Ryan"}
+          </button>
         </div>
         {fixKnownResult && (
           <pre className="mt-3 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixKnownResult}</pre>
         )}
         {fixTeamsResult && (
           <pre className="mt-3 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixTeamsResult}</pre>
+        )}
+        {fixGladhhandersResult && (
+          <pre className="mt-3 text-xs bg-gray-50 border border-gray-200 rounded p-3 whitespace-pre-wrap">{fixGladhhandersResult}</pre>
         )}
       </div>
 
