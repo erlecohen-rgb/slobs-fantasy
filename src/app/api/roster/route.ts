@@ -23,18 +23,24 @@ export async function GET(request: NextRequest) {
   }
 
   // Return all teams with their rosters
-  const query = supabase
+  let query = supabase
     .from("teams")
     .select("*, roster_players(*)")
     .order("name");
 
   if (leagueId) {
-    query.eq("league_id", leagueId);
+    query = query.eq("league_id", leagueId);
   }
 
   const { data, error } = await query;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ teams: data });
+  const teams = (data || []).map((team) => ({
+    ...team,
+    roster_players: (team.roster_players || []).filter(
+      (p: { dropped_at: string | null }) => p.dropped_at === null
+    ),
+  }));
+  return NextResponse.json({ teams });
 }
