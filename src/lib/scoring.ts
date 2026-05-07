@@ -15,6 +15,7 @@ export interface BatterWeeklyStats {
   hitByPitch: number;
   errors: number;
   passedBalls: number;
+  wildPitches: number;
   // For special awards - per-game breakdowns
   gameLog: BatterGameLog[];
 }
@@ -33,6 +34,7 @@ export interface BatterGameLog {
   hitByPitch: number;
   errors: number;
   passedBalls: number;
+  wildPitches: number;
   playedPosition: boolean; // played at activated position
   positionsPlayed?: string[]; // actual positions played that game
 }
@@ -238,6 +240,11 @@ export function scoreBatter(
   if (stats.passedBalls > 0) {
     const pts = stats.passedBalls * -5;
     breakdown.push({ category: "Passed Balls", stat: stats.passedBalls, points: pts });
+    totalPoints += pts;
+  }
+  if (stats.wildPitches > 0) {
+    const pts = stats.wildPitches * -5;
+    breakdown.push({ category: "Wild Pitches", stat: stats.wildPitches, points: pts });
     totalPoints += pts;
   }
 
