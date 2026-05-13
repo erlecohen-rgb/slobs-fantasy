@@ -85,6 +85,27 @@ export default function DashboardPage() {
     const isPitcher = ["SP", "RP", "P"].includes(player.primaryPosition.abbreviation);
     const pos = player.primaryPosition.abbreviation === "P" ? "SP" : player.primaryPosition.abbreviation;
 
+    // Optimistic update: add immediately to local state
+    const tempId = `temp-${Date.now()}`;
+    const prevTeams = teams;
+    setTeams((prev) =>
+      prev.map((team) =>
+        team.id !== selectedTeamId ? team : {
+          ...team,
+          roster_players: [...team.roster_players, {
+            id: tempId,
+            mlb_player_id: player.id,
+            mlb_player_name: player.fullName,
+            mlb_team: player.currentTeam?.abbreviation || player.currentTeam?.name || "FA",
+            primary_position: pos,
+            is_pitcher: isPitcher,
+          }],
+        }
+      )
+    );
+    setSearchResults([]);
+    setSearchQuery("");
+
     try {
       const res = await fetch("/api/roster/player", {
         method: "POST",
@@ -99,15 +120,16 @@ export default function DashboardPage() {
         }),
       });
       const data = await res.json();
-      if (data.error) {
-        alert(`Failed to add player: ${data.error}`);
+      if (!res.ok || data.error) {
+        setTeams(prevTeams);
+        alert(`Failed to add player: ${data.error || res.statusText}`);
         setAdding(false);
         return;
       }
-      setSearchResults([]);
-      setSearchQuery("");
+      // Re-fetch to replace temp entry with real DB row
       loadTeams();
     } catch (e) {
+      setTeams(prevTeams);
       alert(`Failed to add player: ${String(e)}`);
     }
     setAdding(false);
@@ -115,15 +137,29 @@ export default function DashboardPage() {
 
   async function removePlayer(playerId: string) {
     if (!confirm("Remove this player from roster?")) return;
+
+    // Optimistic update: remove immediately from local state
+    const prevTeams = teams;
+    setTeams((prev) =>
+      prev.map((team) => ({
+        ...team,
+        roster_players: team.roster_players.filter((p) => p.id !== playerId),
+      }))
+    );
+
     try {
       const res = await fetch(`/api/roster/player?id=${playerId}`, { method: "DELETE" });
       const data = await res.json();
-      if (data.error) {
-        alert(`Failed to drop player: ${data.error}`);
+      if (!res.ok || data.error) {
+        // Revert optimistic update
+        setTeams(prevTeams);
+        alert(`Failed to drop player: ${data.error || res.statusText}`);
         return;
       }
+      // Re-fetch to sync with server
       loadTeams();
     } catch (e) {
+      setTeams(prevTeams);
       alert(`Failed to drop player: ${String(e)}`);
     }
   }
