@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
 
 interface RosterPlayer {
@@ -56,29 +55,17 @@ function fmt(d: Date): string {
 }
 
 export default function ScoresPage() {
-  const { user } = useUser();
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [shortWeek, setShortWeek] = useState(false);
-  const [activePlayers, setActivePlayersRaw] = useState<Set<string>>(new Set());
+  const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
+  const [lineupLoaded, setLineupLoaded] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [weekResult, setWeekResult] = useState<WeekResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expandedPlayer, setExpandedPlayer] = useState<string | null>(null);
-  const [rosterCollapsed, setRosterCollapsed] = useState(false);
-  const loadedCacheRef = useRef(false);
-
-  // Wrap setActivePlayers to also persist to localStorage
-  function setActivePlayers(players: Set<string>) {
-    setActivePlayersRaw(players);
-    try {
-      localStorage.setItem(`slobs-active-${selectedTeamId}`, JSON.stringify([...players]));
-    } catch {
-      // ignore
-    }
-  }
 
   useEffect(() => {
     const monday = getMonday(new Date());
@@ -104,33 +91,31 @@ export default function ScoresPage() {
     }
   }, [teams, selectedTeamId]);
 
-  // When team changes, load from cache or default to all active
+  // When team or date changes, load lineup from DB
   useEffect(() => {
     const team = teams.find((t) => t.id === selectedTeamId);
-    if (team) {
-      // Try loading cached active players
-      try {
-        const cached = localStorage.getItem(`slobs-active-${selectedTeamId}`);
-        if (cached) {
-          const ids = JSON.parse(cached) as string[];
-          // Validate that cached IDs still exist on the roster
-          const rosterIds = new Set(team.roster_players.map((p) => p.id));
-          const valid = ids.filter((id) => rosterIds.has(id));
-          if (valid.length > 0) {
-            setActivePlayersRaw(new Set(valid));
-            loadedCacheRef.current = true;
-            setWeekResult(null);
-            return;
-          }
+    if (!team || !startDate || !endDate) return;
+    setLineupLoaded(false);
+    setWeekResult(null);
+
+    fetch(`/api/roster/lineup?team_id=${selectedTeamId}&start_date=${startDate}&end_date=${endDate}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const players: { roster_player_id: string }[] = data.players || [];
+        if (players.length > 0) {
+          setActivePlayers(new Set(players.map((p) => p.roster_player_id)));
+        } else {
+          // No saved lineup — default all active
+          setActivePlayers(new Set(team.roster_players.map((p) => p.id)));
         }
-      } catch {
-        // ignore
-      }
-      // Default: all active
-      setActivePlayersRaw(new Set(team.roster_players.map((p) => p.id)));
-      setWeekResult(null);
-    }
-  }, [selectedTeamId, teams]);
+        setLineupLoaded(true);
+      })
+      .catch(() => {
+        // On error, default to all active
+        setActivePlayers(new Set(team.roster_players.map((p) => p.id)));
+        setLineupLoaded(true);
+      });
+  }, [selectedTeamId, startDate, endDate, teams]);
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
   const allPlayers = selectedTeam?.roster_players || [];
@@ -138,14 +123,6 @@ export default function ScoresPage() {
   // Two-way player safe: use activated position, not is_pitcher flag
   const isPitcherPosition = (p: RosterPlayer) =>
     p.primary_position === "SP" || p.primary_position === "RP";
-
-  function togglePlayer(id: string) {
-    const next = new Set(activePlayers);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setActivePlayers(next);
-    setShowWarningConfirm(false);
-  }
 
   function setWeekFromOffset(offset: number) {
     const current = startDate ? new Date(startDate + "T12:00:00") : getMonday(new Date());
@@ -207,7 +184,6 @@ export default function ScoresPage() {
   async function calculateScores() {
     if (!selectedTeam) return;
 
-    // If there are warnings and user hasn't confirmed, show confirmation
     if (rosterCheck.warnings.length > 0 && !showWarningConfirm) {
       setShowWarningConfirm(true);
       return;
@@ -237,17 +213,6 @@ export default function ScoresPage() {
     }
 
     try {
-      // Persist lineup to DB so Report page can read it (fire and forget)
-      void fetch("/api/roster/lineup", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          team_id: selectedTeamId,
-          start_date: startDate,
-          active_roster_player_ids: [...activePlayers],
-        }),
-      });
-
       const res = await fetch("/api/scores/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -265,7 +230,6 @@ export default function ScoresPage() {
         setError(data.error);
       } else {
         setWeekResult(data);
-        setRosterCollapsed(true); // auto-collapse roster to show results
       }
     } catch (e) {
       setError("Failed to calculate: " + String(e));
@@ -298,9 +262,6 @@ export default function ScoresPage() {
     .filter((r) => activeKeys.has(resultKey(r)))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
   const weekTotal = batterTotal + pitcherTotal;
-
-  const activeBatters = allPlayers.filter((p) => !isPitcherPosition(p));
-  const activePitchers = allPlayers.filter((p) => isPitcherPosition(p));
 
   return (
     <div className="space-y-6">
@@ -373,7 +334,7 @@ export default function ScoresPage() {
           <ul className="list-disc list-inside space-y-0.5">
             {rosterCheck.warnings.map((w, i) => <li key={i}>{w}</li>)}
           </ul>
-          <p className="mt-2 text-xs text-amber-600">Click &quot;Calculate Anyway&quot; to proceed, or fix your active roster above.</p>
+          <p className="mt-2 text-xs text-amber-600">Click &quot;Calculate Anyway&quot; to proceed, or fix your lineup in the <a href="/roster" className="underline">Roster tab</a>.</p>
         </div>
       )}
       {!showWarningConfirm && rosterCheck.warnings.length > 0 && !weekResult && (
@@ -388,81 +349,16 @@ export default function ScoresPage() {
       {/* Lineup Slots Visual */}
       <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} />
 
-      {/* Active Roster Selection */}
-      <div className="bg-white rounded-lg shadow">
-        <button
-          onClick={() => setRosterCollapsed(!rosterCollapsed)}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 text-left"
-        >
-          <h2 className="font-semibold text-sm">
-            Active Roster ({activePlayers.size} of {allPlayers.length})
-            {rosterCollapsed && <span className="text-gray-400 font-normal ml-2">click to expand</span>}
-          </h2>
-          <div className="flex gap-2 items-center">
-            {!rosterCollapsed && (
-              <>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setActivePlayers(new Set(allPlayers.map((p) => p.id))); }}
-                  className="text-xs text-green-700 hover:text-green-900"
-                >
-                  Activate All
-                </button>
-                <button
-                  onClick={(e) => { e.stopPropagation(); setActivePlayers(new Set()); }}
-                  className="text-xs text-gray-500 hover:text-gray-700"
-                >
-                  Clear All
-                </button>
-              </>
-            )}
-            <span className="text-gray-400 text-xs">{rosterCollapsed ? "[+]" : "[-]"}</span>
-          </div>
-        </button>
-        {!rosterCollapsed && <div className="grid grid-cols-1 md:grid-cols-2 gap-0 border-t border-gray-200">
-          {/* Batters column */}
-          <div className="border-r border-gray-100">
-            <div className="px-4 py-2 bg-gray-50 text-xs text-gray-400 uppercase font-medium">Batters</div>
-            {activeBatters.map((p) => (
-              <label key={p.id} className="flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={activePlayers.has(p.id)}
-                  onChange={() => togglePlayer(p.id)}
-                  className="rounded border-gray-300 text-green-600"
-                />
-                <span className="text-xs font-mono bg-green-50 text-green-700 px-1.5 py-0.5 rounded w-7 text-center">
-                  {p.primary_position}
-                </span>
-                <span className="text-sm">{p.mlb_player_name}</span>
-                {(!p.mlb_player_id || p.mlb_player_id === 0) && (
-                  <span className="text-xs text-amber-500">no ID</span>
-                )}
-              </label>
-            ))}
-          </div>
-          {/* Pitchers column */}
-          <div>
-            <div className="px-4 py-2 bg-gray-50 text-xs text-gray-400 uppercase font-medium">Pitchers</div>
-            {activePitchers.map((p) => (
-              <label key={p.id} className="flex items-center gap-2 px-4 py-1.5 hover:bg-gray-50 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={activePlayers.has(p.id)}
-                  onChange={() => togglePlayer(p.id)}
-                  className="rounded border-gray-300 text-blue-600"
-                />
-                <span className="text-xs font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded w-7 text-center">
-                  {p.primary_position}
-                </span>
-                <span className="text-sm">{p.mlb_player_name}</span>
-                {(!p.mlb_player_id || p.mlb_player_id === 0) && (
-                  <span className="text-xs text-amber-500">no ID</span>
-                )}
-              </label>
-            ))}
-          </div>
-        </div>}
-      </div>
+      {/* Lineup info — set from Roster tab */}
+      {lineupLoaded && (
+        <div className="text-xs text-gray-500 flex items-center gap-1.5">
+          <span>Lineup loaded from Roster tab:</span>
+          <span className="font-medium text-gray-700">{activePlayers.size} active</span>
+          <span className="text-gray-300">/</span>
+          <span>{allPlayers.length - activePlayers.size} bench</span>
+          <a href="/roster" className="ml-2 text-green-700 underline hover:text-green-900">Edit lineup →</a>
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">{error}</div>

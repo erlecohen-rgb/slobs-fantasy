@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("weekly_lineups")
-    .select("mlb_player_id, activated_position, week_number, roster_players(mlb_player_name, is_pitcher)")
+    .select("roster_player_id, mlb_player_id, activated_position, week_number, roster_players(mlb_player_name, is_pitcher)")
     .eq("team_id", teamId)
     .eq("season_year", seasonYear)
     .eq("is_active", true)
@@ -43,11 +43,12 @@ export async function GET(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Deduplicate by mlb_player_id (player may appear in multiple weeks)
-  const seen = new Map<number, { mlb_player_id: number; activated_position: string; mlb_player_name: string; is_pitcher: boolean }>();
+  const seen = new Map<number, { roster_player_id: string; mlb_player_id: number; activated_position: string; mlb_player_name: string; is_pitcher: boolean }>();
   for (const row of data ?? []) {
     if (!seen.has(row.mlb_player_id)) {
       const rp = (Array.isArray(row.roster_players) ? row.roster_players[0] : row.roster_players) as { mlb_player_name: string; is_pitcher: boolean } | null;
       seen.set(row.mlb_player_id, {
+        roster_player_id: row.roster_player_id,
         mlb_player_id: row.mlb_player_id,
         activated_position: row.activated_position,
         mlb_player_name: rp?.mlb_player_name ?? "",
