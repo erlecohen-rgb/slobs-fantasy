@@ -36,5 +36,12 @@ export async function GET(request: NextRequest) {
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ teams: data });
+  // Filter out soft-deleted roster players
+  const teams = (data ?? []).map((team) => ({
+    ...team,
+    roster_players: (team.roster_players ?? []).filter(
+      (p: { dropped_at: string | null }) => !p.dropped_at
+    ),
+  }));
+  return NextResponse.json({ teams });
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useUser } from "@clerk/nextjs";
 
 interface RosterPlayer {
   id: string;
@@ -27,7 +26,6 @@ interface SearchResult {
 }
 
 export default function DashboardPage() {
-  const { user } = useUser();
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState("");
   const [loading, setLoading] = useState(true);
@@ -42,14 +40,15 @@ export default function DashboardPage() {
       .then((data) => {
         const t = data.teams || [];
         setTeams(t);
-        if (!selectedTeamId) {
+        setSelectedTeamId((prev) => {
+          if (prev) return prev;
           const grizzlies = t.find((team: Team) => team.name === "Grumpy Grizzlies");
-          setSelectedTeamId(grizzlies?.id || t[0]?.id || "");
-        }
+          return grizzlies?.id || t[0]?.id || "";
+        });
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, [selectedTeamId, user]);
+  }, []);
 
   useEffect(() => { loadTeams(); }, [loadTeams]);
 
@@ -86,28 +85,47 @@ export default function DashboardPage() {
     const isPitcher = ["SP", "RP", "P"].includes(player.primaryPosition.abbreviation);
     const pos = player.primaryPosition.abbreviation === "P" ? "SP" : player.primaryPosition.abbreviation;
 
-    await fetch("/api/roster/player", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        team_id: selectedTeamId,
-        mlb_player_id: player.id,
-        mlb_player_name: player.fullName,
-        mlb_team: player.currentTeam?.abbreviation || player.currentTeam?.name || "FA",
-        primary_position: pos,
-        is_pitcher: isPitcher,
-      }),
-    });
+    try {
+      const res = await fetch("/api/roster/player", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          team_id: selectedTeamId,
+          mlb_player_id: player.id,
+          mlb_player_name: player.fullName,
+          mlb_team: player.currentTeam?.abbreviation || player.currentTeam?.name || "FA",
+          primary_position: pos,
+          is_pitcher: isPitcher,
+        }),
+      });
+      const data = await res.json();
+      if (data.error) {
+        alert(`Failed to add player: ${data.error}`);
+        setAdding(false);
+        return;
+      }
+      setSearchResults([]);
+      setSearchQuery("");
+      loadTeams();
+    } catch (e) {
+      alert(`Failed to add player: ${String(e)}`);
+    }
     setAdding(false);
-    setSearchResults([]);
-    setSearchQuery("");
-    loadTeams();
   }
 
   async function removePlayer(playerId: string) {
     if (!confirm("Remove this player from roster?")) return;
-    await fetch(`/api/roster/player?id=${playerId}`, { method: "DELETE" });
-    loadTeams();
+    try {
+      const res = await fetch(`/api/roster/player?id=${playerId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (data.error) {
+        alert(`Failed to drop player: ${data.error}`);
+        return;
+      }
+      loadTeams();
+    } catch (e) {
+      alert(`Failed to drop player: ${String(e)}`);
+    }
   }
 
   if (loading) return <div className="p-8 text-gray-500">Loading...</div>;
