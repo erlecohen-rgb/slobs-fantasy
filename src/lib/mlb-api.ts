@@ -45,14 +45,31 @@ export async function searchPlayers(query: string): Promise<MLBPlayer[]> {
   );
 }
 
-// Get all players on active MLB rosters for current season
+// Get all players on active MLB rosters for current season.
+// Fetches teams in parallel to fill in abbreviations that currentTeam hydration omits.
 export async function getActiveRosterPlayers(season?: number): Promise<MLBPlayer[]> {
   const yr = season || new Date().getFullYear();
-  const res = await fetch(
-    `${MLB_API_BASE}/sports/1/players?season=${yr}&activeStatus=ACTIVE&hydrate=currentTeam`
-  );
-  const data = await res.json();
-  return data.people || [];
+  const [playersRes, teamsRes] = await Promise.all([
+    fetch(`${MLB_API_BASE}/sports/1/players?season=${yr}&activeStatus=ACTIVE&hydrate=currentTeam`),
+    fetch(`${MLB_API_BASE}/teams?sportId=1&season=${yr}`),
+  ]);
+  const [playersData, teamsData] = await Promise.all([playersRes.json(), teamsRes.json()]);
+
+  // Build teamId → abbreviation lookup
+  const teamAbbr = new Map<number, string>();
+  for (const t of teamsData.teams ?? []) {
+    if (t.id && t.abbreviation) teamAbbr.set(t.id, t.abbreviation);
+  }
+
+  const people: MLBPlayer[] = playersData.people ?? [];
+  // Enrich currentTeam.abbreviation where missing
+  return people.map((p) => {
+    if (p.currentTeam?.id && !p.currentTeam.abbreviation) {
+      const abbr = teamAbbr.get(p.currentTeam.id);
+      if (abbr) return { ...p, currentTeam: { ...p.currentTeam, abbreviation: abbr } };
+    }
+    return p;
+  });
 }
 
 // Get all MLB teams
