@@ -33,6 +33,9 @@ export default function DashboardPage() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [droppingId, setDroppingId] = useState<string | null>(null);
+  const [dropError, setDropError] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
 
   const loadTeams = useCallback(() => {
     fetch("/api/roster?league_id=01756471-3bd1-4e83-8533-093d9e97bb86")
@@ -57,7 +60,6 @@ export default function DashboardPage() {
   const batters = players.filter((p) => p.primary_position !== "SP" && p.primary_position !== "RP");
   const pitchers = players.filter((p) => p.primary_position === "SP" || p.primary_position === "RP");
 
-  // Group batters by position
   const positionOrder = ["C", "1B", "2B", "3B", "SS", "OF", "DH"];
   const sortedBatters = [...batters].sort(
     (a, b) => positionOrder.indexOf(a.primary_position) - positionOrder.indexOf(b.primary_position)
@@ -69,6 +71,7 @@ export default function DashboardPage() {
   async function searchPlayers() {
     if (!searchQuery.trim()) return;
     setSearching(true);
+    setAddError(null);
     try {
       const res = await fetch(`/api/players?q=${encodeURIComponent(searchQuery)}`);
       const data = await res.json();
@@ -82,10 +85,10 @@ export default function DashboardPage() {
   async function addPlayer(player: SearchResult) {
     if (!selectedTeamId) return;
     setAdding(true);
+    setAddError(null);
     const isPitcher = ["SP", "RP", "P"].includes(player.primaryPosition.abbreviation);
     const pos = player.primaryPosition.abbreviation === "P" ? "SP" : player.primaryPosition.abbreviation;
 
-    // Optimistic update: add immediately to local state
     const tempId = `temp-${Date.now()}`;
     const prevTeams = teams;
     setTeams((prev) =>
@@ -122,23 +125,22 @@ export default function DashboardPage() {
       const data = await res.json();
       if (!res.ok || data.error) {
         setTeams(prevTeams);
-        alert(`Failed to add player: ${data.error || res.statusText}`);
+        setAddError(data.error || `Server error ${res.status}`);
         setAdding(false);
         return;
       }
-      // Re-fetch to replace temp entry with real DB row
       loadTeams();
     } catch (e) {
       setTeams(prevTeams);
-      alert(`Failed to add player: ${String(e)}`);
+      setAddError(String(e));
     }
     setAdding(false);
   }
 
-  async function removePlayer(playerId: string) {
-    if (!confirm("Remove this player from roster?")) return;
+  async function confirmDrop(playerId: string) {
+    setDropError(null);
 
-    // Optimistic update: remove immediately from local state
+    // Optimistic: remove from UI immediately
     const prevTeams = teams;
     setTeams((prev) =>
       prev.map((team) => ({
@@ -146,21 +148,20 @@ export default function DashboardPage() {
         roster_players: team.roster_players.filter((p) => p.id !== playerId),
       }))
     );
+    setDroppingId(null);
 
     try {
       const res = await fetch(`/api/roster/player?id=${playerId}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok || data.error) {
-        // Revert optimistic update
         setTeams(prevTeams);
-        alert(`Failed to drop player: ${data.error || res.statusText}`);
+        setDropError(data.error || `Server error ${res.status}`);
         return;
       }
-      // Re-fetch to sync with server
       loadTeams();
     } catch (e) {
       setTeams(prevTeams);
-      alert(`Failed to drop player: ${String(e)}`);
+      setDropError(String(e));
     }
   }
 
@@ -168,19 +169,16 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold">{selectedTeam?.name || "My Team"}</h1>
-            <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
-              {players.length}/26
-            </span>
-          </div>
+        <div className="flex items-center gap-3">
+          <h1 className="text-3xl font-bold">{selectedTeam?.name || "My Team"}</h1>
+          <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
+            {players.length}/26
+          </span>
         </div>
         <select
           value={selectedTeamId}
-          onChange={(e) => setSelectedTeamId(e.target.value)}
+          onChange={(e) => { setSelectedTeamId(e.target.value); setDroppingId(null); setDropError(null); }}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium"
         >
           {teams.map((t) => (
@@ -188,6 +186,13 @@ export default function DashboardPage() {
           ))}
         </select>
       </div>
+
+      {dropError && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 flex items-center justify-between">
+          <span>Drop failed: {dropError}</span>
+          <button onClick={() => setDropError(null)} className="text-red-400 hover:text-red-600 ml-4">✕</button>
+        </div>
+      )}
 
       {/* Add Player */}
       <div className="bg-white rounded-lg shadow p-4">
@@ -209,6 +214,9 @@ export default function DashboardPage() {
             {searching ? "..." : "Search"}
           </button>
         </div>
+        {addError && (
+          <p className="mt-2 text-sm text-red-600">Add failed: {addError}</p>
+        )}
         {searchResults.length > 0 && (
           <div className="mt-2 border border-gray-200 rounded-lg divide-y divide-gray-100 max-h-60 overflow-y-auto">
             {searchResults.map((p) => (
@@ -227,7 +235,7 @@ export default function DashboardPage() {
                   disabled={adding || players.length >= 26}
                   className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 disabled:opacity-50"
                 >
-                  Add
+                  {adding ? "Adding..." : "Add"}
                 </button>
               </div>
             ))}
@@ -237,7 +245,7 @@ export default function DashboardPage() {
 
       {/* Batters */}
       <div className="bg-white rounded-lg shadow">
-        <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-4 py-3 border-b border-gray-200">
           <h2 className="font-semibold">Batters ({sortedBatters.length})</h2>
         </div>
         <table className="w-full">
@@ -260,12 +268,29 @@ export default function DashboardPage() {
                 <td className="px-4 py-2 text-sm font-medium">{p.mlb_player_name}</td>
                 <td className="px-4 py-2 text-sm text-gray-400 font-mono">{p.mlb_team}</td>
                 <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => removePlayer(p.id)}
-                    className="text-xs text-red-500 hover:text-red-700"
-                  >
-                    Drop
-                  </button>
+                  {droppingId === p.id ? (
+                    <span className="inline-flex items-center gap-1">
+                      <button
+                        onClick={() => confirmDrop(p.id)}
+                        className="text-xs bg-red-600 text-white px-2 py-0.5 rounded hover:bg-red-700"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setDroppingId(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700 px-1"
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setDroppingId(p.id)}
+                      className="text-xs text-red-500 hover:text-red-700"
+                    >
+                      Drop
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -298,12 +323,29 @@ export default function DashboardPage() {
                 <td className="px-4 py-2 text-sm font-medium">{p.mlb_player_name}</td>
                 <td className="px-4 py-2 text-sm text-gray-400 font-mono">{p.mlb_team}</td>
                 <td className="px-4 py-2 text-right">
-                  <button
-                    onClick={() => removePlayer(p.id)}
-                    className="text-xs text-red-500 hover:text-red-700"
-                  >
-                    Drop
-                  </button>
+                  {droppingId === p.id ? (
+                    <span className="inline-flex items-center gap-1">
+                      <button
+                        onClick={() => confirmDrop(p.id)}
+                        className="text-xs bg-red-600 text-white px-2 py-0.5 rounded hover:bg-red-700"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setDroppingId(null)}
+                        className="text-xs text-gray-500 hover:text-gray-700 px-1"
+                      >
+                        Cancel
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      onClick={() => setDroppingId(p.id)}
+                      className="text-xs text-red-500 hover:text-red-700"
+                    >
+                      Drop
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
