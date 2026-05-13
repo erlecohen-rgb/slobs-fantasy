@@ -19,13 +19,30 @@ interface Team {
 const BATTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "UTIL", "DH"];
 const PITCHER_POSITIONS = ["SP", "RP"];
 
+function getMonday(d: Date): Date {
+  const day = d.getDay();
+  const diff = d.getDate() - ((day + 6) % 7);
+  return new Date(d.getFullYear(), d.getMonth(), diff);
+}
+
+function fmt(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
 export default function RosterPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
   const [loading, setLoading] = useState(true);
-  const [isLocked, setIsLocked] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [errorId, setErrorId] = useState<string | null>(null);
+
+  // Lineup state
+  const [lineupActive, setLineupActive] = useState<Set<string>>(new Set());
+  const [lineupLoaded, setLineupLoaded] = useState(false);
+  const [savingLineup, setSavingLineup] = useState(false);
+  const [lineupSavedMsg, setLineupSavedMsg] = useState(false);
+
+  const weekStart = fmt(getMonday(new Date()));
 
   useEffect(() => {
     fetch("/api/roster?league_id=01756471-3bd1-4e83-8533-093d9e97bb86")
@@ -33,7 +50,6 @@ export default function RosterPage() {
       .then((data) => {
         const t = data.teams || [];
         setTeams(t);
-        // Default to Grumpy Grizzlies
         const grizzlies = t.find((team: Team) => team.name === "Grumpy Grizzlies");
         if (grizzlies) setSelectedTeamId(grizzlies.id);
         else if (t.length > 0) setSelectedTeamId(t[0].id);
@@ -42,11 +58,37 @@ export default function RosterPage() {
       .catch(() => setLoading(false));
   }, []);
 
+  // Load saved lineup when team or week changes
+  useEffect(() => {
+    if (!selectedTeamId) return;
+    setLineupLoaded(false);
+    const monday = new Date(weekStart + "T12:00:00");
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    const end = fmt(sunday);
+
+    fetch(`/api/roster/lineup?team_id=${selectedTeamId}&start_date=${weekStart}&end_date=${end}`)
+      .then((r) => r.json())
+      .then((data) => {
+        const players: { roster_player_id: string }[] = data.players || [];
+        if (players.length > 0) {
+          setLineupActive(new Set(players.map((p) => p.roster_player_id)));
+        } else {
+          // No saved lineup — default all active
+          const team = teams.find((t) => t.id === selectedTeamId);
+          if (team) {
+            setLineupActive(new Set(team.roster_players.map((p) => p.id)));
+          }
+        }
+        setLineupLoaded(true);
+      })
+      .catch(() => setLineupLoaded(true));
+  }, [selectedTeamId, weekStart, teams]);
+
   async function updatePosition(playerId: string, newPosition: string) {
     setSavingId(playerId);
     setErrorId(null);
 
-    // Optimistic update
     setTeams((prev) =>
       prev.map((team) => ({
         ...team,
@@ -65,12 +107,43 @@ export default function RosterPage() {
       if (!res.ok) throw new Error("Failed to save");
     } catch {
       setErrorId(playerId);
-      // Revert on failure by re-fetching
       fetch("/api/roster?league_id=01756471-3bd1-4e83-8533-093d9e97bb86")
         .then((r) => r.json())
         .then((data) => setTeams(data.teams || []));
     } finally {
       setSavingId(null);
+    }
+  }
+
+  function toggleActive(playerId: string) {
+    setLineupActive((prev) => {
+      const next = new Set(prev);
+      if (next.has(playerId)) next.delete(playerId);
+      else next.add(playerId);
+      return next;
+    });
+  }
+
+  async function saveLineup() {
+    if (!selectedTeamId) return;
+    setSavingLineup(true);
+    try {
+      const res = await fetch("/api/roster/lineup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          team_id: selectedTeamId,
+          start_date: weekStart,
+          active_roster_player_ids: [...lineupActive],
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save lineup");
+      setLineupSavedMsg(true);
+      setTimeout(() => setLineupSavedMsg(false), 2500);
+    } catch {
+      alert("Failed to save lineup");
+    } finally {
+      setSavingLineup(false);
     }
   }
 
@@ -90,11 +163,7 @@ export default function RosterPage() {
           <h1 className="text-3xl font-bold">Roster Management</h1>
           <p className="text-gray-600 mt-1">
             {players.length}/26 players rostered.{" "}
-            {isLocked ? (
-              <span className="text-red-600 font-medium">Lineup locked for this week.</span>
-            ) : (
-              <span className="text-green-600 font-medium">Lineup open - locks Monday at noon PT.</span>
-            )}
+            <span className="text-green-600 font-medium">Set your active lineup below, then Save.</span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -110,51 +179,70 @@ export default function RosterPage() {
             ))}
           </select>
           <button
-            onClick={() => setIsLocked(!isLocked)}
-            className="bg-green-700 text-white px-4 py-2 rounded-lg hover:bg-green-800 transition-colors text-sm font-medium"
+            onClick={saveLineup}
+            disabled={savingLineup || !lineupLoaded}
+            className="bg-green-700 text-white px-4 py-2 rounded-lg hover:bg-green-800 transition-colors text-sm font-medium disabled:opacity-50"
           >
-            Save Lineup
+            {savingLineup ? "Saving..." : lineupSavedMsg ? "Saved!" : "Save Lineup"}
           </button>
         </div>
       </div>
+
+      {lineupLoaded && (
+        <p className="text-xs text-gray-500">
+          Week of {weekStart} &mdash; {lineupActive.size} of {players.length} players active
+        </p>
+      )}
 
       {/* Batters */}
       <Section title={`Batters (${batters.length})`}>
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50 text-left text-sm text-gray-500">
+              <th className="px-4 py-2 font-medium">Active</th>
               <th className="px-4 py-2 font-medium">Pos</th>
               <th className="px-4 py-2 font-medium">Player</th>
               <th className="px-4 py-2 font-medium">Team</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {batters.map((player) => (
-              <tr key={player.id}>
-                <td className="px-4 py-2">
-                  <select
-                    value={player.primary_position}
-                    disabled={savingId === player.id}
-                    onChange={(e) => updatePosition(player.id, e.target.value)}
-                    className={`text-xs font-mono px-2 py-1 rounded border ${
-                      player.primary_position === "DH"
-                        ? "bg-yellow-100 text-yellow-800 border-yellow-300"
-                        : "bg-green-100 text-green-800 border-green-200"
-                    } ${savingId === player.id ? "opacity-50" : ""} ${
-                      errorId === player.id ? "border-red-400" : ""
-                    }`}
-                  >
-                    {BATTER_POSITIONS.map((pos) => (
-                      <option key={pos} value={pos}>
-                        {pos}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-4 py-2 font-medium">{player.mlb_player_name}</td>
-                <td className="px-4 py-2 text-gray-500 font-mono text-sm">{player.mlb_team}</td>
-              </tr>
-            ))}
+            {batters.map((player) => {
+              const isActive = lineupActive.has(player.id);
+              return (
+                <tr key={player.id} className={isActive ? "" : "opacity-50"}>
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={isActive}
+                      onChange={() => toggleActive(player.id)}
+                      className="rounded border-gray-300 text-green-600"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={player.primary_position}
+                      disabled={savingId === player.id}
+                      onChange={(e) => updatePosition(player.id, e.target.value)}
+                      className={`text-xs font-mono px-2 py-1 rounded border ${
+                        player.primary_position === "DH"
+                          ? "bg-yellow-100 text-yellow-800 border-yellow-300"
+                          : "bg-green-100 text-green-800 border-green-200"
+                      } ${savingId === player.id ? "opacity-50" : ""} ${
+                        errorId === player.id ? "border-red-400" : ""
+                      }`}
+                    >
+                      {BATTER_POSITIONS.map((pos) => (
+                        <option key={pos} value={pos}>
+                          {pos}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-2 font-medium">{player.mlb_player_name}</td>
+                  <td className="px-4 py-2 text-gray-500 font-mono text-sm">{player.mlb_team}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </Section>
@@ -164,30 +252,42 @@ export default function RosterPage() {
         <table className="w-full">
           <thead>
             <tr className="bg-gray-50 text-left text-sm text-gray-500">
+              <th className="px-4 py-2 font-medium">Active</th>
               <th className="px-4 py-2 font-medium">Role</th>
               <th className="px-4 py-2 font-medium">Player</th>
               <th className="px-4 py-2 font-medium">Team</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {pitchers.map((player) => (
-              <tr key={player.id}>
-                <td className="px-4 py-2">
-                  <select
-                    value={player.primary_position}
-                    disabled={savingId === player.id}
-                    onChange={(e) => updatePosition(player.id, e.target.value)}
-                    className={`text-xs font-mono px-2 py-1 rounded border bg-blue-100 text-blue-800 border-blue-200 ${savingId === player.id ? "opacity-50" : ""} ${errorId === player.id ? "border-red-400" : ""}`}
-                  >
-                    {PITCHER_POSITIONS.map((pos) => (
-                      <option key={pos} value={pos}>{pos}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-4 py-2 font-medium">{player.mlb_player_name}</td>
-                <td className="px-4 py-2 text-gray-500 font-mono text-sm">{player.mlb_team}</td>
-              </tr>
-            ))}
+            {pitchers.map((player) => {
+              const isActive = lineupActive.has(player.id);
+              return (
+                <tr key={player.id} className={isActive ? "" : "opacity-50"}>
+                  <td className="px-4 py-2">
+                    <input
+                      type="checkbox"
+                      checked={isActive}
+                      onChange={() => toggleActive(player.id)}
+                      className="rounded border-gray-300 text-blue-600"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <select
+                      value={player.primary_position}
+                      disabled={savingId === player.id}
+                      onChange={(e) => updatePosition(player.id, e.target.value)}
+                      className={`text-xs font-mono px-2 py-1 rounded border bg-blue-100 text-blue-800 border-blue-200 ${savingId === player.id ? "opacity-50" : ""} ${errorId === player.id ? "border-red-400" : ""}`}
+                    >
+                      {PITCHER_POSITIONS.map((pos) => (
+                        <option key={pos} value={pos}>{pos}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-2 font-medium">{player.mlb_player_name}</td>
+                  <td className="px-4 py-2 text-gray-500 font-mono text-sm">{player.mlb_team}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </Section>

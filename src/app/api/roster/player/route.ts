@@ -59,7 +59,8 @@ export async function PATCH(request: NextRequest) {
   return NextResponse.json({ player: data });
 }
 
-// DELETE /api/roster/player?id=xxx — remove a player from roster
+// DELETE /api/roster/player?id=xxx — soft-delete a player (set dropped_at)
+// Hard delete would violate FK constraints from weekly_lineups/weekly_scores.
 export async function DELETE(request: NextRequest) {
   const supabase = createServiceClient();
   const id = request.nextUrl.searchParams.get("id");
@@ -68,13 +69,17 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "id required" }, { status: 400 });
   }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("roster_players")
-    .delete()
-    .eq("id", id);
+    .update({ dropped_at: new Date().toISOString() })
+    .eq("id", id)
+    .select("id");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: "Player not found" }, { status: 404 });
   }
   return NextResponse.json({ ok: true });
 }
