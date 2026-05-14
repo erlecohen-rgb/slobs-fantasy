@@ -1,28 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getActiveRosterPlayers } from "@/lib/mlb-api";
 
-// GET /api/scores/debug-player?q=caminero
-// Searches active MLB rosters and returns matching players with their IDs
+const MLB_API_BASE = "https://statsapi.mlb.com/api/v1";
+
+// GET /api/scores/debug-player?q=caminero&teamId=139
+// Searches MLB rosters (including IL) and returns matching players with their IDs
+// Tampa Bay Rays teamId = 139
 export async function GET(request: NextRequest) {
-  const q = request.nextUrl.searchParams.get("q") || "";
+  const q = (request.nextUrl.searchParams.get("q") || "").toLowerCase();
+  const teamId = request.nextUrl.searchParams.get("teamId") || "139"; // default TB Rays
+  const season = request.nextUrl.searchParams.get("season") || "2026";
+
   try {
-    const all = await getActiveRosterPlayers();
+    // Fetch full 40-man roster (includes IL players)
+    const res = await fetch(
+      `${MLB_API_BASE}/teams/${teamId}/roster?rosterType=fullRoster&season=${season}&hydrate=person(currentTeam,primaryPosition)`
+    );
+    const data = await res.json();
+    const roster: Record<string, unknown>[] = data.roster || [];
+
     const matches = q
-      ? all.filter(
-          (p) =>
-            p.fullName?.toLowerCase().includes(q.toLowerCase()) ||
-            p.lastName?.toLowerCase().includes(q.toLowerCase())
-        )
-      : [];
+      ? roster.filter((entry) => {
+          const person = entry.person as Record<string, unknown>;
+          const name = ((person?.fullName as string) || "").toLowerCase();
+          return name.includes(q);
+        })
+      : roster;
+
     return NextResponse.json({
       query: q,
+      teamId,
+      season,
+      totalOnRoster: roster.length,
       count: matches.length,
-      players: matches.map((p) => ({
-        id: p.id,
-        fullName: p.fullName,
-        position: p.primaryPosition?.abbreviation,
-        team: p.currentTeam?.abbreviation || p.currentTeam?.name,
-      })),
+      players: matches.map((entry) => {
+        const person = entry.person as Record<string, unknown>;
+        const pos = entry.position as Record<string, unknown>;
+        return {
+          id: person?.id,
+          fullName: person?.fullName,
+          position: pos?.abbreviation,
+          status: entry.status,
+        };
+      }),
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
