@@ -53,9 +53,9 @@ const KNOWN_FIXES: {
   { namePattern: "Hader, J",      mlb_player_name: "Josh Hader",          mlb_player_id: 595978, mlb_team: "HOU", primary_position: "RP", is_pitcher: true  },
   { namePattern: "Kirby, G",      mlb_player_name: "George Kirby",        mlb_player_id: 669923, mlb_team: "SEA", primary_position: "SP", is_pitcher: true  },
   { namePattern: "Lodolo, N",     mlb_player_name: "Nick Lodolo",         mlb_player_id: 672382, mlb_team: "CIN", primary_position: "SP", is_pitcher: true  },
-  { namePattern: "Caminero, J",   mlb_player_name: "Junior Caminero",     mlb_player_id: 686469, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
-  { namePattern: "j caminero",    mlb_player_name: "Junior Caminero",     mlb_player_id: 686469, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
-  { namePattern: "Junior Caminero", mlb_player_name: "Junior Caminero",   mlb_player_id: 686469, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
+  { namePattern: "Caminero, J",     mlb_player_name: "Junior Caminero",   mlb_player_id: 691406, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
+  { namePattern: "j caminero",      mlb_player_name: "Junior Caminero",   mlb_player_id: 691406, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
+  { namePattern: "Junior Caminero", mlb_player_name: "Junior Caminero",   mlb_player_id: 691406, mlb_team: "TB",  primary_position: "3B", is_pitcher: false },
   { namePattern: "t hernandez",   mlb_player_name: "Teoscar Hernandez",   mlb_player_id: 606192, mlb_team: "LAD", primary_position: "LF", is_pitcher: false },
   // Also cover full names in case auto-resolve already ran and changed the stored name
   { namePattern: "Jackson Chourio", mlb_player_name: "Jackson Chourio",   mlb_player_id: 694192, mlb_team: "MIL", primary_position: "OF", is_pitcher: false },
