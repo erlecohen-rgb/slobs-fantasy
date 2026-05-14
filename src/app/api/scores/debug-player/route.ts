@@ -7,14 +7,12 @@ const MLB_API_BASE = "https://statsapi.mlb.com/api/v1";
 // Tampa Bay Rays teamId = 139
 export async function GET(request: NextRequest) {
   const q = (request.nextUrl.searchParams.get("q") || "").toLowerCase();
-  const teamId = request.nextUrl.searchParams.get("teamId") || "139"; // default TB Rays
+  const teamId = request.nextUrl.searchParams.get("teamId") || "139";
   const season = request.nextUrl.searchParams.get("season") || "2026";
 
   try {
-    // Fetch full 40-man roster (includes IL players)
-    const res = await fetch(
-      `${MLB_API_BASE}/teams/${teamId}/roster?rosterType=fullRoster&season=${season}&hydrate=person(currentTeam,primaryPosition)`
-    );
+    const url = `${MLB_API_BASE}/teams/${teamId}/roster?rosterType=40Man&season=${season}`;
+    const res = await fetch(url);
     const data = await res.json();
     const roster: Record<string, unknown>[] = data.roster || [];
 
@@ -27,6 +25,8 @@ export async function GET(request: NextRequest) {
       : roster;
 
     return NextResponse.json({
+      url,
+      httpStatus: res.status,
       query: q,
       teamId,
       season,
@@ -42,6 +42,7 @@ export async function GET(request: NextRequest) {
           status: entry.status,
         };
       }),
+      rawFirstEntry: roster[0] ?? null,
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
