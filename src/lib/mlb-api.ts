@@ -154,12 +154,15 @@ export async function getFieldingGameLog(
   );
   const data = await res.json();
   const splits = data.stats?.[0]?.splits || [];
-  return splits.map((s: Record<string, Record<string, unknown>>) => {
-    const pos = (s.position as Record<string, unknown>)?.abbreviation || "";
+  return splits.map((s: Record<string, unknown>) => {
+    // position can live at the top-level split OR inside stat — check both
+    const topPos = s.position as Record<string, unknown> | undefined;
+    const statPos = (s.stat as Record<string, unknown>)?.position as Record<string, unknown> | undefined;
+    const pos = (topPos?.abbreviation ?? statPos?.abbreviation ?? "") as string;
     return {
-      ...s.stat,
+      ...(s.stat as Record<string, unknown>),
       date: s.date,
-      position: pos, // must come after ...s.stat since stat also has a 'position' key
+      position: pos, // string abbreviation, overrides any object from stat spread
     };
   });
 }
