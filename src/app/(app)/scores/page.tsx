@@ -81,17 +81,13 @@ export default function ScoresPage() {
       });
   }, []);
 
-  // Auto-select user's team when teams load or user changes
   useEffect(() => {
     if (teams.length === 0 || selectedTeamId) return;
     const grizzlies = teams.find((t) => t.name === "Grumpy Grizzlies");
     const defaultTeam = grizzlies || teams[0];
-    if (defaultTeam) {
-      setSelectedTeamId(defaultTeam.id);
-    }
+    if (defaultTeam) setSelectedTeamId(defaultTeam.id);
   }, [teams, selectedTeamId]);
 
-  // When team or date changes, load lineup from DB
   useEffect(() => {
     const team = teams.find((t) => t.id === selectedTeamId);
     if (!team || !startDate || !endDate) return;
@@ -105,13 +101,11 @@ export default function ScoresPage() {
         if (players.length > 0) {
           setActivePlayers(new Set(players.map((p) => p.roster_player_id)));
         } else {
-          // No saved lineup — default all active
           setActivePlayers(new Set(team.roster_players.map((p) => p.id)));
         }
         setLineupLoaded(true);
       })
       .catch(() => {
-        // On error, default to all active
         setActivePlayers(new Set(team.roster_players.map((p) => p.id)));
         setLineupLoaded(true);
       });
@@ -120,7 +114,6 @@ export default function ScoresPage() {
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
   const allPlayers = selectedTeam?.roster_players || [];
 
-  // Two-way player safe: use activated position, not is_pitcher flag
   const isPitcherPosition = (p: RosterPlayer) =>
     p.primary_position === "SP" || p.primary_position === "RP";
 
@@ -132,7 +125,6 @@ export default function ScoresPage() {
     setEndDate(fmt(getSunday(monday)));
   }
 
-  // Roster validation
   const REQUIRED_BATTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "OF", "DH"];
   const REQUIRED_SP = 4;
   const REQUIRED_RP = 2;
@@ -146,34 +138,18 @@ export default function ScoresPage() {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Check batter positions
     const filledPositions = new Set(activeBats.map((p) => p.primary_position));
     const missingPositions = REQUIRED_BATTER_POSITIONS.filter((pos) => !filledPositions.has(pos));
-    if (missingPositions.length > 0) {
-      warnings.push(`Missing batter position(s): ${missingPositions.join(", ")}`);
-    }
+    if (missingPositions.length > 0) warnings.push(`Missing batter position(s): ${missingPositions.join(", ")}`);
 
-    // Check for duplicate positions (more than allowed at a position)
-    // OF can have multiple, others should be 1
     for (const pos of ["C", "1B", "2B", "3B", "SS", "DH"]) {
       const count = activeBats.filter((p) => p.primary_position === pos).length;
-      if (count > 1) {
-        warnings.push(`${count} players at ${pos} (expected 1)`);
-      }
+      if (count > 1) warnings.push(`${count} players at ${pos} (expected 1)`);
     }
 
-    // Check pitchers
-    if (activeSP.length < REQUIRED_SP) {
-      warnings.push(`${activeSP.length} SP active (expected ${REQUIRED_SP})`);
-    }
-    if (activeRP.length < REQUIRED_RP) {
-      warnings.push(`${activeRP.length} RP active (expected ${REQUIRED_RP})`);
-    }
-
-    // No active players at all = hard error
-    if (activeList.filter((p) => p.mlb_player_id > 0).length === 0) {
-      errors.push("No active players with MLB IDs");
-    }
+    if (activeSP.length < REQUIRED_SP) warnings.push(`${activeSP.length} SP active (expected ${REQUIRED_SP})`);
+    if (activeRP.length < REQUIRED_RP) warnings.push(`${activeRP.length} RP active (expected ${REQUIRED_RP})`);
+    if (activeList.filter((p) => p.mlb_player_id > 0).length === 0) errors.push("No active players with MLB IDs");
 
     return { valid: errors.length === 0, warnings, errors };
   }
@@ -183,20 +159,15 @@ export default function ScoresPage() {
 
   async function calculateScores() {
     if (!selectedTeam) return;
-
     if (rosterCheck.warnings.length > 0 && !showWarningConfirm) {
       setShowWarningConfirm(true);
       return;
     }
     setShowWarningConfirm(false);
-
     setCalculating(true);
     setError(null);
     setWeekResult(null);
 
-    // Score ALL roster entries independently. Two-way players (e.g. Ohtani)
-    // have separate DH and SP entries — each gets its own score.
-    // Only active entries count toward the weekly total.
     const players = allPlayers
       .filter((p) => p.mlb_player_id > 0)
       .map((p) => ({
@@ -207,7 +178,7 @@ export default function ScoresPage() {
       }));
 
     if (players.length === 0) {
-      setError("No players with MLB IDs found. Players need MLB IDs to calculate scores.");
+      setError("No players with MLB IDs found.");
       setCalculating(false);
       return;
     }
@@ -216,45 +187,43 @@ export default function ScoresPage() {
       const res = await fetch("/api/scores/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          weekNumber: 1, // not used for date range
-          seasonYear: 2026,
-          players,
-          shortWeek,
-          startDate,
-          endDate,
-        }),
+        body: JSON.stringify({ weekNumber: 1, seasonYear: 2026, players, shortWeek, startDate, endDate }),
       });
       const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setWeekResult(data);
-      }
+      if (data.error) setError(data.error);
+      else setWeekResult(data);
     } catch (e) {
       setError("Failed to calculate: " + String(e));
     }
     setCalculating(false);
   }
 
-  // Build lookup maps. Each roster entry is independent — two-way players
-  // (e.g. Ohtani) have separate entries keyed by "mlbId-position".
   const playerNameMap = new Map<number, string>();
-  const activeKeys = new Set<string>(); // "mlbId-position" keys for active entries
+  const activeKeys = new Set<string>();
+  const keyToRosterId = new Map<string, string>();
 
   allPlayers.forEach((p) => {
     playerNameMap.set(p.mlb_player_id, p.mlb_player_name);
-    if (activePlayers.has(p.id)) {
-      activeKeys.add(`${p.mlb_player_id}-${p.primary_position}`);
-    }
+    const key = `${p.mlb_player_id}-${p.primary_position}`;
+    keyToRosterId.set(key, p.id);
+    if (activePlayers.has(p.id)) activeKeys.add(key);
   });
 
-  // Use result's own position to split into batter/pitcher sections
+  function togglePlayerActive(mlbPlayerId: number, position: string) {
+    const rosterId = keyToRosterId.get(`${mlbPlayerId}-${position}`);
+    if (!rosterId) return;
+    setActivePlayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(rosterId)) next.delete(rosterId);
+      else next.add(rosterId);
+      return next;
+    });
+  }
+
   const resultKey = (r: PlayerResult) => `${r.mlbPlayerId}-${r.position}`;
   const batterResults = weekResult?.results.filter((r) => r.position !== "SP" && r.position !== "RP") || [];
   const pitcherResults = weekResult?.results.filter((r) => r.position === "SP" || r.position === "RP") || [];
 
-  // Only count active + qualified entries in totals
   const batterTotal = batterResults
     .filter((r) => activeKeys.has(resultKey(r)))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
@@ -278,38 +247,22 @@ export default function ScoresPage() {
         </select>
       </div>
 
-      {/* Date Range + Calculate */}
       <div className="bg-white rounded-lg shadow p-4 space-y-3">
         <div className="flex items-end gap-4 flex-wrap">
           <div>
             <label className="block text-xs text-gray-500 mb-1">Start Date</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            />
+            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">End Date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            />
+            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div className="flex gap-1">
             <button onClick={() => setWeekFromOffset(-1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">Prev Week</button>
             <button onClick={() => setWeekFromOffset(1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">Next Week</button>
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-600">
-            <input
-              type="checkbox"
-              checked={shortWeek}
-              onChange={(e) => setShortWeek(e.target.checked)}
-              className="rounded border-gray-300"
-            />
+            <input type="checkbox" checked={shortWeek} onChange={(e) => setShortWeek(e.target.checked)} className="rounded border-gray-300" />
             Short week (no thresholds)
           </label>
           <button
@@ -322,7 +275,6 @@ export default function ScoresPage() {
         </div>
       </div>
 
-      {/* Roster Validation */}
       {rosterCheck.errors.length > 0 && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700">
           {rosterCheck.errors.map((e, i) => <div key={i}>{e}</div>)}
@@ -343,20 +295,17 @@ export default function ScoresPage() {
         </div>
       )}
 
-      {/* Weekly Forecast - for NEXT week */}
       <ForecastPanel teamId={selectedTeamId} currentStartDate={startDate} />
 
-      {/* Lineup Slots Visual */}
       <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} />
 
-      {/* Lineup info — set from Roster tab */}
       {lineupLoaded && (
         <div className="text-xs text-gray-500 flex items-center gap-1.5">
-          <span>Lineup loaded from Roster tab:</span>
+          <span>Lineup:</span>
           <span className="font-medium text-gray-700">{activePlayers.size} active</span>
           <span className="text-gray-300">/</span>
           <span>{allPlayers.length - activePlayers.size} bench</span>
-          <a href="/roster" className="ml-2 text-green-700 underline hover:text-green-900">Edit lineup →</a>
+          <a href="/roster" className="ml-2 text-green-700 underline hover:text-green-900">Edit in Roster tab →</a>
           <button
             onClick={() => setActivePlayers(new Set(allPlayers.map((p) => p.id)))}
             className="ml-2 text-blue-600 underline hover:text-blue-800"
@@ -372,7 +321,6 @@ export default function ScoresPage() {
 
       {weekResult && (
         <>
-          {/* Summary */}
           <div className="grid grid-cols-3 gap-4">
             <div className="bg-white rounded-lg shadow p-5 text-center">
               <p className="text-xs text-gray-400 uppercase tracking-wider">Batting</p>
@@ -388,7 +336,6 @@ export default function ScoresPage() {
             </div>
           </div>
 
-          {/* Special Awards */}
           {weekResult.results.some((r) => r.scoring.specialAwards.length > 0) && (
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
               <h3 className="font-semibold text-yellow-800 mb-2">Special Awards</h3>
@@ -404,7 +351,6 @@ export default function ScoresPage() {
             </div>
           )}
 
-          {/* Batter Scores */}
           <ScoreSection
             title={`Batting (${batterTotal} pts)`}
             results={batterResults}
@@ -413,9 +359,9 @@ export default function ScoresPage() {
             activeKeys={activeKeys}
             expandedPlayer={expandedPlayer}
             setExpandedPlayer={setExpandedPlayer}
+            togglePlayerActive={togglePlayerActive}
           />
 
-          {/* Pitcher Scores */}
           <ScoreSection
             title={`Pitching (${pitcherTotal} pts)`}
             results={pitcherResults}
@@ -424,6 +370,7 @@ export default function ScoresPage() {
             activeKeys={activeKeys}
             expandedPlayer={expandedPlayer}
             setExpandedPlayer={setExpandedPlayer}
+            togglePlayerActive={togglePlayerActive}
           />
         </>
       )}
@@ -431,19 +378,12 @@ export default function ScoresPage() {
   );
 }
 
-function ForecastPanel({
-  teamId,
-  currentStartDate,
-}: {
-  teamId: string;
-  currentStartDate: string;
-}) {
+function ForecastPanel({ teamId, currentStartDate }: { teamId: string; currentStartDate: string }) {
   const [forecast, setForecast] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // Forecast is always for NEXT week (Mon-Sun after the current period)
   const baseDate = currentStartDate || fmt(getMonday(new Date()));
   const nextMonday = new Date(baseDate + "T12:00:00");
   nextMonday.setDate(nextMonday.getDate() + 7);
@@ -463,11 +403,8 @@ function ForecastPanel({
         body: JSON.stringify({ team_id: teamId, start_date: forecastStart, end_date: forecastEnd }),
       });
       const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setForecast(data.forecast);
-      }
+      if (data.error) setError(data.error);
+      else setForecast(data.forecast);
     } catch (e) {
       setError("Failed to generate forecast: " + String(e));
     }
@@ -482,10 +419,7 @@ function ForecastPanel({
         </h2>
         <div className="flex items-center gap-2">
           {forecast && (
-            <button
-              onClick={() => setCollapsed(!collapsed)}
-              className="text-xs text-gray-500 hover:text-gray-700"
-            >
+            <button onClick={() => setCollapsed(!collapsed)} className="text-xs text-gray-500 hover:text-gray-700">
               {collapsed ? "Show" : "Hide"}
             </button>
           )}
@@ -498,14 +432,8 @@ function ForecastPanel({
           </button>
         </div>
       </div>
-      {error && (
-        <div className="px-4 pb-3 text-sm text-red-600">{error}</div>
-      )}
-      {loading && (
-        <div className="px-4 pb-4 text-sm text-gray-500">
-          Pulling MLB schedule, probable pitchers, recent stats, and injury data...
-        </div>
-      )}
+      {error && <div className="px-4 pb-3 text-sm text-red-600">{error}</div>}
+      {loading && <div className="px-4 pb-4 text-sm text-gray-500">Pulling MLB schedule, probable pitchers, recent stats, and injury data...</div>}
       {forecast && !collapsed && (
         <div className="px-4 pb-4 prose prose-sm max-w-none text-gray-800">
           <ReactMarkdown>{forecast}</ReactMarkdown>
@@ -515,13 +443,7 @@ function ForecastPanel({
   );
 }
 
-function SlotsBar({
-  allPlayers,
-  activePlayers,
-}: {
-  allPlayers: RosterPlayer[];
-  activePlayers: Set<string>;
-}) {
+function SlotsBar({ allPlayers, activePlayers }: { allPlayers: RosterPlayer[]; activePlayers: Set<string> }) {
   const activeList = allPlayers.filter((p) => activePlayers.has(p.id));
 
   const BATTER_SLOTS = [
@@ -545,14 +467,7 @@ function SlotsBar({
       .map((p) => p.mlb_player_name);
   }
 
-  function renderSlots(
-    slots: typeof BATTER_SLOTS,
-    isPitcher: boolean,
-    filledColor: string,
-    filledBorder: string,
-    filledText: string,
-    filledLabel: string,
-  ) {
+  function renderSlots(slots: typeof BATTER_SLOTS, isPitcher: boolean, filledColor: string, filledBorder: string, filledText: string, filledLabel: string) {
     return slots.flatMap((slot) => {
       const names = getPlayersAtPos(slot.pos, isPitcher);
       const required = slot.count;
@@ -562,16 +477,11 @@ function SlotsBar({
         const shortName = playerName ? playerName.split(" ").slice(-1)[0] : "";
         const isFilled = i < names.length;
         const isOverflow = i >= required;
-
-        let className: string;
-        if (isOverflow) {
-          className = "bg-amber-50 border-amber-400 border-2";
-        } else if (isFilled) {
-          className = `${filledColor} ${filledBorder}`;
-        } else {
-          className = "bg-gray-50 border-dashed border-gray-300";
-        }
-
+        const className = isOverflow
+          ? "bg-amber-50 border-amber-400 border-2"
+          : isFilled
+          ? `${filledColor} ${filledBorder}`
+          : "bg-gray-50 border-dashed border-gray-300";
         return (
           <div
             key={`${slot.pos}-${i}`}
@@ -597,7 +507,6 @@ function SlotsBar({
           <span className="text-xs text-gray-400 font-medium uppercase w-full mb-1">Batting</span>
           {renderSlots(BATTER_SLOTS, false, "bg-green-50", "border-green-300", "text-green-900", "text-green-700")}
         </div>
-
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs text-gray-400 font-medium uppercase w-full mb-1">Pitching</span>
           {renderSlots(PITCHER_SLOTS, true, "bg-blue-50", "border-blue-300", "text-blue-900", "text-blue-700")}
@@ -607,13 +516,7 @@ function SlotsBar({
   );
 }
 
-function BreakdownTable({
-  breakdown,
-  isPitcher,
-}: {
-  breakdown: { category: string; stat: number; points: number; note?: string }[];
-  isPitcher: boolean;
-}) {
+function BreakdownTable({ breakdown, isPitcher }: { breakdown: { category: string; stat: number; points: number; note?: string }[]; isPitcher: boolean }) {
   const [expandedGames, setExpandedGames] = useState<Set<number>>(new Set());
 
   if (isPitcher) {
@@ -627,7 +530,6 @@ function BreakdownTable({
         groups.push({ header: { category: "Summary", stat: 0, points: 0, note: "" }, items: [item] });
       }
     }
-
     return (
       <div className="space-y-1">
         {groups.map((group, gi) => {
@@ -704,7 +606,7 @@ function BreakdownTable({
 }
 
 function ScoreSection({
-  title, results, playerNameMap, isPitcher, activeKeys, expandedPlayer, setExpandedPlayer,
+  title, results, playerNameMap, isPitcher, activeKeys, expandedPlayer, setExpandedPlayer, togglePlayerActive,
 }: {
   title: string;
   results: PlayerResult[];
@@ -713,6 +615,7 @@ function ScoreSection({
   activeKeys: Set<string>;
   expandedPlayer: string | null;
   setExpandedPlayer: (id: string | null) => void;
+  togglePlayerActive: (mlbPlayerId: number, position: string) => void;
 }) {
   const rKey = (r: PlayerResult) => `${r.mlbPlayerId}-${r.position}`;
 
@@ -735,25 +638,33 @@ function ScoreSection({
           const isActive = activeKeys.has(key);
           return (
             <div key={key} className={isActive ? "" : "opacity-50"}>
-              <button
-                onClick={() => setExpandedPlayer(expanded ? null : key)}
-                className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 text-left"
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`text-xs font-mono px-2 py-0.5 rounded w-8 text-center ${isPitcher ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}`}>
-                    {r.position}
-                  </span>
-                  <span className="text-sm font-medium">{playerNameMap.get(r.mlbPlayerId) || `#${r.mlbPlayerId}`}</span>
-                  {!isActive && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">bench</span>}
-                  {!r.scoring.qualified && <span className="text-xs text-red-500 bg-red-50 px-1.5 py-0.5 rounded">DQ</span>}
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className={`font-mono font-bold text-sm ${r.scoring.points > 0 ? "text-green-700" : r.scoring.points < 0 ? "text-red-600" : "text-gray-400"}`}>
-                    {r.scoring.points > 0 ? "+" : ""}{r.scoring.points}
-                  </span>
-                  <span className="text-gray-300 text-xs">{expanded ? "[-]" : "[+]"}</span>
-                </div>
-              </button>
+              <div className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
+                <input
+                  type="checkbox"
+                  checked={isActive}
+                  onChange={() => togglePlayerActive(r.mlbPlayerId, r.position)}
+                  className={`rounded border-gray-300 flex-shrink-0 ${isPitcher ? "text-blue-600" : "text-green-600"}`}
+                />
+                <button
+                  onClick={() => setExpandedPlayer(expanded ? null : key)}
+                  className="flex items-center justify-between flex-1 min-w-0 text-left"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className={`text-xs font-mono px-2 py-0.5 rounded w-8 text-center flex-shrink-0 ${isPitcher ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}`}>
+                      {r.position}
+                    </span>
+                    <span className="text-sm font-medium truncate">{playerNameMap.get(r.mlbPlayerId) || `#${r.mlbPlayerId}`}</span>
+                    {!isActive && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">bench</span>}
+                    {!r.scoring.qualified && <span className="text-xs text-red-500 bg-red-50 px-1.5 py-0.5 rounded flex-shrink-0">DQ</span>}
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                    <span className={`font-mono font-bold text-sm ${r.scoring.points > 0 ? "text-green-700" : r.scoring.points < 0 ? "text-red-600" : "text-gray-400"}`}>
+                      {r.scoring.points > 0 ? "+" : ""}{r.scoring.points}
+                    </span>
+                    <span className="text-gray-300 text-xs">{expanded ? "[-]" : "[+]"}</span>
+                  </div>
+                </button>
+              </div>
               {expanded && (
                 <div className="px-4 pb-3">
                   {!r.scoring.qualified && r.scoring.disqualificationReason && (
