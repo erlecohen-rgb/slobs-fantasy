@@ -357,6 +357,12 @@ export default function ScoresPage() {
           <span className="text-gray-300">/</span>
           <span>{allPlayers.length - activePlayers.size} bench</span>
           <a href="/roster" className="ml-2 text-green-700 underline hover:text-green-900">Edit lineup →</a>
+          <button
+            onClick={() => setActivePlayers(new Set(allPlayers.map((p) => p.id)))}
+            className="ml-2 text-blue-600 underline hover:text-blue-800"
+          >
+            Set all active
+          </button>
         </div>
       )}
 
@@ -550,13 +556,12 @@ function SlotsBar({
     return slots.flatMap((slot) => {
       const names = getPlayersAtPos(slot.pos, isPitcher);
       const required = slot.count;
-      // Show required slots + any overflow
       const totalToShow = Math.max(required, names.length);
       return Array.from({ length: totalToShow }, (_, i) => {
         const playerName = names[i] || "";
         const shortName = playerName ? playerName.split(" ").slice(-1)[0] : "";
         const isFilled = i < names.length;
-        const isOverflow = i >= required; // extra player beyond required slots
+        const isOverflow = i >= required;
 
         let className: string;
         if (isOverflow) {
@@ -611,7 +616,6 @@ function BreakdownTable({
 }) {
   const [expandedGames, setExpandedGames] = useState<Set<number>>(new Set());
 
-  // For pitchers, group items by game (items starting with "Game:" are headers)
   if (isPitcher) {
     const groups: { header: typeof breakdown[0]; items: typeof breakdown }[] = [];
     for (const item of breakdown) {
@@ -620,7 +624,6 @@ function BreakdownTable({
       } else if (groups.length > 0) {
         groups[groups.length - 1].items.push(item);
       } else {
-        // Item before any game header (shouldn't happen, but handle gracefully)
         groups.push({ header: { category: "Summary", stat: 0, points: 0, note: "" }, items: [item] });
       }
     }
@@ -676,7 +679,6 @@ function BreakdownTable({
     );
   }
 
-  // For batters, flat table (same as before)
   return (
     <table className="w-full text-xs">
       <thead>
@@ -714,7 +716,6 @@ function ScoreSection({
 }) {
   const rKey = (r: PlayerResult) => `${r.mlbPlayerId}-${r.position}`;
 
-  // Sort: active players first (by points desc), then inactive (by points desc)
   const sorted = [...results].sort((a, b) => {
     const aActive = activeKeys.has(rKey(a)) ? 0 : 1;
     const bActive = activeKeys.has(rKey(b)) ? 0 : 1;
