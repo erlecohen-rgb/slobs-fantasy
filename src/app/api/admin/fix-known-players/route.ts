@@ -59,11 +59,8 @@ const KNOWN_FIXES: {
   { namePattern: "t hernandez",   mlb_player_name: "Teoscar Hernandez",   mlb_player_id: 606192, mlb_team: "LAD", primary_position: "LF", is_pitcher: false },
   // Also cover full names in case auto-resolve already ran and changed the stored name
   { namePattern: "Jackson Chourio", mlb_player_name: "Jackson Chourio",   mlb_player_id: 694192, mlb_team: "MIL", primary_position: "OF", is_pitcher: false },
-  // Gladhanders players with abbreviated/incorrect names
-  // "Alvarez, F" was incorrectly matched — the intended player is Yordan Alvarez
-  { namePattern: "Alvarez, F",      mlb_player_name: "Yordan Alvarez",    mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
-  { namePattern: "Francisco Alvarez", mlb_player_name: "Yordan Alvarez",  mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
-  { namePattern: "Yordan Alvarez",  mlb_player_name: "Yordan Alvarez",    mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
+  // Gladhanders
+  { namePattern: "Alvarez, Y",      mlb_player_name: "Yordan Alvarez",    mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
   { namePattern: "Marte, K",        mlb_player_name: "Ketel Marte",       mlb_player_id: 606466, mlb_team: "ARI", primary_position: "2B", is_pitcher: false },
   { namePattern: "Ketel Marte",     mlb_player_name: "Ketel Marte",       mlb_player_id: 606466, mlb_team: "ARI", primary_position: "2B", is_pitcher: false },
   { namePattern: "Barger, A",       mlb_player_name: "Addison Barger",    mlb_player_id: 683737, mlb_team: "TOR", primary_position: "3B", is_pitcher: false },
@@ -75,6 +72,27 @@ const KNOWN_FIXES: {
   { namePattern: "Ryan, J",           mlb_player_name: "Joe Ryan",         mlb_player_id: 657746, mlb_team: "MIN", primary_position: "SP", is_pitcher: true  },
   { namePattern: "Joe Ryan",          mlb_player_name: "Joe Ryan",         mlb_player_id: 657746, mlb_team: "MIN", primary_position: "SP", is_pitcher: true  },
   { namePattern: "J Ryan",            mlb_player_name: "Joe Ryan",         mlb_player_id: 657746, mlb_team: "MIN", primary_position: "SP", is_pitcher: true  },
+];
+
+// One-time direct fixes by roster_player UUID — for records that were corrupted
+// by name-pattern fixes or import errors and need targeted correction.
+const DIRECT_FIXES: {
+  id: string;
+  mlb_player_name: string;
+  mlb_player_id: number;
+  mlb_team: string;
+  primary_position: string;
+  is_pitcher: boolean;
+}[] = [
+  // Francisco Alvarez (NYM, C, #682626) — was overwritten as Yordan Alvarez by old import fix
+  {
+    id: "4824cce9-01a2-4654-93ea-7c6de6dff602",
+    mlb_player_name: "Francisco Alvarez",
+    mlb_player_id: 682626,
+    mlb_team: "NYM",
+    primary_position: "C",
+    is_pitcher: false,
+  },
 ];
 
 async function applyFixes() {
@@ -99,6 +117,26 @@ async function applyFixes() {
       errors.push(`${fix.namePattern}: ${error.message}`);
     } else {
       applied.push({ from: fix.namePattern, to: fix.mlb_player_name, count: data?.length ?? 0 });
+    }
+  }
+
+  for (const fix of DIRECT_FIXES) {
+    const { data, error } = await supabase
+      .from("roster_players")
+      .update({
+        mlb_player_name: fix.mlb_player_name,
+        mlb_player_id: fix.mlb_player_id,
+        mlb_team: fix.mlb_team,
+        primary_position: fix.primary_position,
+        is_pitcher: fix.is_pitcher,
+      })
+      .eq("id", fix.id)
+      .select();
+
+    if (error) {
+      errors.push(`direct:${fix.id}: ${error.message}`);
+    } else {
+      applied.push({ from: `id:${fix.id}`, to: fix.mlb_player_name, count: data?.length ?? 0 });
     }
   }
 
