@@ -63,8 +63,8 @@ const KNOWN_FIXES: {
   { namePattern: "Alvarez, Y",      mlb_player_name: "Yordan Alvarez",    mlb_player_id: 670541, mlb_team: "HOU", primary_position: "DH", is_pitcher: false },
   { namePattern: "Marte, K",        mlb_player_name: "Ketel Marte",       mlb_player_id: 606466, mlb_team: "ARI", primary_position: "2B", is_pitcher: false },
   { namePattern: "Ketel Marte",     mlb_player_name: "Ketel Marte",       mlb_player_id: 606466, mlb_team: "ARI", primary_position: "2B", is_pitcher: false },
-  { namePattern: "Barger, A",       mlb_player_name: "Addison Barger",    mlb_player_id: 683737, mlb_team: "TOR", primary_position: "3B", is_pitcher: false },
-  { namePattern: "Addison Barger",  mlb_player_name: "Addison Barger",    mlb_player_id: 683737, mlb_team: "TOR", primary_position: "3B", is_pitcher: false },
+  { namePattern: "Barger, A",       mlb_player_name: "Addison Barger",    mlb_player_id: 680718, mlb_team: "TOR", primary_position: "3B", is_pitcher: false },
+  { namePattern: "Addison Barger",  mlb_player_name: "Addison Barger",    mlb_player_id: 680718, mlb_team: "TOR", primary_position: "3B", is_pitcher: false },
   { namePattern: "Betts, M",        mlb_player_name: "Mookie Betts",      mlb_player_id: 605141, mlb_team: "LAD", primary_position: "SS", is_pitcher: false },
   { namePattern: "Mookie Betts",    mlb_player_name: "Mookie Betts",      mlb_player_id: 605141, mlb_team: "LAD", primary_position: "SS", is_pitcher: false },
   { namePattern: "Yelich, C",       mlb_player_name: "Christian Yelich",  mlb_player_id: 592885, mlb_team: "MIL", primary_position: "LF", is_pitcher: false },
@@ -91,6 +91,24 @@ const DIRECT_FIXES: {
     mlb_player_id: 682626,
     mlb_team: "NYM",
     primary_position: "C",
+    is_pitcher: false,
+  },
+  // Addison Barger (TOR, 3B, #680718) — had wrong ID 683737 (Michael Busch's ID)
+  {
+    id: "8e8e4444-fbfe-4c24-bc32-67cac1ef1f08",
+    mlb_player_name: "Addison Barger",
+    mlb_player_id: 680718,
+    mlb_team: "TOR",
+    primary_position: "3B",
+    is_pitcher: false,
+  },
+  // Michael Busch (CHC, 1B, #683737) — had Barger's wrong ID applied to his record
+  {
+    id: "044f736f-b160-410d-a15f-fb83f0792fc8",
+    mlb_player_name: "Michael Busch",
+    mlb_player_id: 683737,
+    mlb_team: "CHC",
+    primary_position: "1B",
     is_pitcher: false,
   },
 ];
