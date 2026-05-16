@@ -41,12 +41,13 @@ export async function POST(request: NextRequest) {
     const results = [];
 
     for (const player of players) {
-      const { mlbPlayerId, position, isPitcher, role } = player;
+      const { mlbPlayerId, position, isPitcher, role, rosterId } = player;
 
       if (isPitcher) {
         const result = await calculatePitcherScore(mlbPlayerId, start, end, role || "SP");
         results.push({
           mlbPlayerId,
+          rosterId: rosterId ?? null,
           position,
           role,
           ...result,
@@ -61,6 +62,7 @@ export async function POST(request: NextRequest) {
         );
         results.push({
           mlbPlayerId,
+          rosterId: rosterId ?? null,
           position,
           ...result,
         });
