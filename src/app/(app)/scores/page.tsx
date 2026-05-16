@@ -20,6 +20,7 @@ interface Team {
 
 interface PlayerResult {
   mlbPlayerId: number;
+  rosterId: string | null;
   position: string;
   role?: string;
   stats: Record<string, unknown>;
@@ -202,6 +203,7 @@ export default function ScoresPage() {
     const players = allPlayers
       .filter((p) => p.mlb_player_id > 0)
       .map((p) => ({
+        rosterId: p.id,
         mlbPlayerId: p.mlb_player_id,
         position: p.primary_position,
         isPitcher: p.primary_position === "SP" || p.primary_position === "RP",
@@ -239,20 +241,13 @@ export default function ScoresPage() {
     setCalculating(false);
   }
 
-  // Build lookup maps. Each roster entry is independent — two-way players
-  // (e.g. Ohtani) have separate entries keyed by "mlbId-position".
-  const playerNameMap = new Map<number, string>();
-  const activeKeys = new Set<string>(); // "mlbId-position" keys for active entries
-  // Map from "mlbId-position" back to roster UUID for toggling
-  const keyToRosterId = new Map<string, string>();
+  // Build lookup maps keyed by roster UUID so players with the same mlb_player_id
+  // (e.g. two roster entries with a shared/wrong ID) remain distinct.
+  const playerNameMap = new Map<string, string>(); // rosterId → name
+  const activeKeys = activePlayers; // activeKeys IS activePlayers (Set<rosterId>)
 
   allPlayers.forEach((p) => {
-    playerNameMap.set(p.mlb_player_id, p.mlb_player_name);
-    const key = `${p.mlb_player_id}-${p.primary_position}`;
-    keyToRosterId.set(key, p.id);
-    if (activePlayers.has(p.id)) {
-      activeKeys.add(key);
-    }
+    playerNameMap.set(p.id, p.mlb_player_name);
   });
 
   async function saveLineup() {
@@ -278,9 +273,7 @@ export default function ScoresPage() {
     setSavingLineup(false);
   }
 
-  function togglePlayerActive(mlbPlayerId: number, position: string) {
-    const rosterId = keyToRosterId.get(`${mlbPlayerId}-${position}`);
-    if (!rosterId) return;
+  function togglePlayerActive(rosterId: string) {
     setActivePlayers((prev) => {
       const next = new Set(prev);
       if (next.has(rosterId)) next.delete(rosterId);
@@ -289,17 +282,15 @@ export default function ScoresPage() {
     });
   }
 
-  // Use result's own position to split into batter/pitcher sections
-  const resultKey = (r: PlayerResult) => `${r.mlbPlayerId}-${r.position}`;
   const batterResults = weekResult?.results.filter((r) => r.position !== "SP" && r.position !== "RP") || [];
   const pitcherResults = weekResult?.results.filter((r) => r.position === "SP" || r.position === "RP") || [];
 
-  // Only count active + qualified entries in totals
+  // Only count active + qualified entries in totals (keyed by rosterId)
   const batterTotal = batterResults
-    .filter((r) => activeKeys.has(resultKey(r)))
+    .filter((r) => r.rosterId && activeKeys.has(r.rosterId))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
   const pitcherTotal = pitcherResults
-    .filter((r) => activeKeys.has(resultKey(r)))
+    .filter((r) => r.rosterId && activeKeys.has(r.rosterId))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
   const weekTotal = batterTotal + pitcherTotal;
 
@@ -446,7 +437,7 @@ export default function ScoresPage() {
                 .flatMap((r) =>
                   r.scoring.specialAwards.map((a, i) => (
                     <div key={`${r.mlbPlayerId}-${i}`} className="text-sm text-yellow-700">
-                      <span className="font-medium">{a.name}</span> - {playerNameMap.get(r.mlbPlayerId)}: {a.description}
+                      <span className="font-medium">{a.name}</span> - {playerNameMap.get(r.rosterId ?? "")}: {a.description}
                     </div>
                   ))
                 )}
@@ -763,18 +754,16 @@ function ScoreSection({
 }: {
   title: string;
   results: PlayerResult[];
-  playerNameMap: Map<number, string>;
+  playerNameMap: Map<string, string>;
   isPitcher: boolean;
   activeKeys: Set<string>;
   expandedPlayer: string | null;
   setExpandedPlayer: (id: string | null) => void;
-  togglePlayerActive: (mlbPlayerId: number, position: string) => void;
+  togglePlayerActive: (rosterId: string) => void;
 }) {
-  const rKey = (r: PlayerResult) => `${r.mlbPlayerId}-${r.position}`;
-
   const sorted = [...results].sort((a, b) => {
-    const aActive = activeKeys.has(rKey(a)) ? 0 : 1;
-    const bActive = activeKeys.has(rKey(b)) ? 0 : 1;
+    const aActive = a.rosterId && activeKeys.has(a.rosterId) ? 0 : 1;
+    const bActive = b.rosterId && activeKeys.has(b.rosterId) ? 0 : 1;
     if (aActive !== bActive) return aActive - bActive;
     return b.scoring.points - a.scoring.points;
   });
@@ -786,16 +775,16 @@ function ScoreSection({
       </div>
       <div className="divide-y divide-gray-50">
         {sorted.map((r) => {
-          const key = rKey(r);
+          const key = r.rosterId ?? `${r.mlbPlayerId}-${r.position}`;
           const expanded = expandedPlayer === key;
-          const isActive = activeKeys.has(key);
+          const isActive = r.rosterId ? activeKeys.has(r.rosterId) : false;
           return (
             <div key={key} className={isActive ? "" : "opacity-50"}>
               <div className="px-4 py-3 flex items-center gap-3 hover:bg-gray-50">
                 <input
                   type="checkbox"
                   checked={isActive}
-                  onChange={() => togglePlayerActive(r.mlbPlayerId, r.position)}
+                  onChange={() => r.rosterId && togglePlayerActive(r.rosterId)}
                   className={`rounded border-gray-300 flex-shrink-0 ${isPitcher ? "text-blue-600" : "text-green-600"}`}
                 />
                 <button
@@ -806,12 +795,12 @@ function ScoreSection({
                     <span className={`text-xs font-mono px-2 py-0.5 rounded w-8 text-center flex-shrink-0 ${isPitcher ? "bg-blue-100 text-blue-800" : "bg-green-100 text-green-800"}`}>
                       {r.position}
                     </span>
-                    <span className="text-sm font-medium truncate">{playerNameMap.get(r.mlbPlayerId) || `#${r.mlbPlayerId}`}</span>
+                    <span className="text-sm font-medium truncate">{playerNameMap.get(r.rosterId ?? "") || `#${r.mlbPlayerId}`}</span>
                     {!isActive && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded flex-shrink-0">bench</span>}
                     {!r.scoring.qualified && <span className="text-xs text-red-500 bg-red-50 px-1.5 py-0.5 rounded flex-shrink-0">DQ</span>}
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-                    <span className={`font-mono font-bold text-sm ${r.scoring.points > 0 ? "text-green-700" : r.scoring.points < 0 ? "text-red-600" : "text-gray-400"}`}>
+                    <span className={`font-mono font-bold text-sm ${r.scoring.points > 0 ? "text-green-700" : r.scoring.points < 0 ? "text-red-600" : "text.gray-400"}`}>
                       {r.scoring.points > 0 ? "+" : ""}{r.scoring.points}
                     </span>
                     <span className="text-gray-300 text-xs">{expanded ? "[-]" : "[+]"}</span>
