@@ -62,6 +62,8 @@ export default function ScoresPage() {
   const [shortWeek, setShortWeek] = useState(false);
   const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
   const [lineupLoaded, setLineupLoaded] = useState(false);
+  const [savingLineup, setSavingLineup] = useState(false);
+  const [lineupSaved, setLineupSaved] = useState(false);
   const [calculating, setCalculating] = useState(false);
   const [weekResult, setWeekResult] = useState<WeekResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -253,6 +255,29 @@ export default function ScoresPage() {
     }
   });
 
+  async function saveLineup() {
+    if (!selectedTeamId || !startDate) return;
+    setSavingLineup(true);
+    setLineupSaved(false);
+    try {
+      const res = await fetch("/api/roster/lineup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          team_id: selectedTeamId,
+          start_date: startDate,
+          active_roster_player_ids: [...activePlayers],
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save");
+      setLineupSaved(true);
+      setTimeout(() => setLineupSaved(false), 3000);
+    } catch {
+      alert("Failed to save lineup");
+    }
+    setSavingLineup(false);
+  }
+
   function togglePlayerActive(mlbPlayerId: number, position: string) {
     const rosterId = keyToRosterId.get(`${mlbPlayerId}-${position}`);
     if (!rosterId) return;
@@ -364,20 +389,29 @@ export default function ScoresPage() {
       {/* Lineup Slots Visual */}
       <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} />
 
-      {/* Lineup info — set from Roster tab */}
+      {/* Lineup controls */}
       {lineupLoaded && (
-        <div className="text-xs text-gray-500 flex items-center gap-1.5">
-          <span>Lineup loaded from Roster tab:</span>
+        <div className="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
           <span className="font-medium text-gray-700">{activePlayers.size} active</span>
           <span className="text-gray-300">/</span>
           <span>{allPlayers.length - activePlayers.size} bench</span>
-          <a href="/roster" className="ml-2 text-green-700 underline hover:text-green-900">Edit lineup →</a>
+          <span className="text-gray-300">·</span>
           <button
             onClick={() => setActivePlayers(new Set(allPlayers.map((p) => p.id)))}
-            className="ml-2 text-blue-600 underline hover:text-blue-800"
+            className="text-blue-600 underline hover:text-blue-800"
           >
             Set all active
           </button>
+          <span className="text-gray-300">·</span>
+          <button
+            onClick={saveLineup}
+            disabled={savingLineup}
+            className="text-green-700 underline hover:text-green-900 disabled:opacity-50"
+          >
+            {savingLineup ? "Saving..." : lineupSaved ? "Saved!" : "Save lineup"}
+          </button>
+          <span className="text-gray-300">·</span>
+          <a href="/roster" className="text-gray-400 underline hover:text-gray-600">Edit on Roster tab →</a>
         </div>
       )}
 
