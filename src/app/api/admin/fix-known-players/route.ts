@@ -95,6 +95,12 @@ const DIRECT_FIXES: {
   },
 ];
 
+// Duplicate roster entries to soft-delete. These are extra rows created by
+// repeated imports or fix runs. Only the UUIDs listed here are affected.
+const DUPLICATE_DELETES: string[] = [
+  "c5420498-3209-4433-8cce-5903706f3c11", // duplicate Joe Ryan on Glad Handers
+];
+
 async function applyFixes() {
   const supabase = createServiceClient();
   const applied: { from: string; to: string; count: number }[] = [];
@@ -137,6 +143,21 @@ async function applyFixes() {
       errors.push(`direct:${fix.id}: ${error.message}`);
     } else {
       applied.push({ from: `id:${fix.id}`, to: fix.mlb_player_name, count: data?.length ?? 0 });
+    }
+  }
+
+  for (const id of DUPLICATE_DELETES) {
+    const { data, error } = await supabase
+      .from("roster_players")
+      .update({ dropped_at: new Date().toISOString() })
+      .eq("id", id)
+      .is("dropped_at", null)
+      .select("mlb_player_name");
+
+    if (error) {
+      errors.push(`delete:${id}: ${error.message}`);
+    } else {
+      applied.push({ from: `duplicate:${id}`, to: "soft-deleted", count: data?.length ?? 0 });
     }
   }
 
