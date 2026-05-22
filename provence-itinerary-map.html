@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Provence Driving Itinerary — June 18–22, 2026</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Georgia', serif;
+      background: #f4f0e6;
+      color: #2a1f0e;
+    }
+
+    header {
+      background: #2a1f0e;
+      color: #f4f0e6;
+      padding: 16px 24px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+    header h1 { font-size: 1.4rem; font-weight: normal; letter-spacing: 0.04em; }
+    header span { font-size: 0.88rem; color: #b8a070; }
+
+    #app { display: flex; height: calc(100vh - 54px); }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 320px;
+      min-width: 280px;
+      overflow-y: auto;
+      background: #fdfaf3;
+      border-right: 1px solid #d6c89a;
+      padding: 14px;
+    }
+
+    .day-section { margin-bottom: 18px; }
+
+    .day-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid;
+    }
+    .day-dot { width: 13px; height: 13px; border-radius: 50%; flex-shrink: 0; }
+    .day-title { font-size: 0.8rem; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase; }
+    .day-sub   { font-size: 0.74rem; color: #7a6040; margin-top: 1px; }
+
+    .stop-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 7px 5px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .stop-item:hover { background: #ece4cc; }
+
+    .stop-num {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: bold;
+      color: #fff;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .stop-info  { flex: 1; }
+    .stop-name  { font-size: 0.87rem; font-weight: bold; }
+    .stop-desc  { font-size: 0.75rem; color: #7a6040; margin-top: 2px; line-height: 1.4; }
+    .stop-time  { font-size: 0.71rem; color: #9a7848; margin-top: 3px; font-style: italic; }
+    .stars      { color: #c8900a; font-size: 0.72rem; }
+
+    /* ── Map ── */
+    #map { flex: 1; }
+
+    /* ── Legend ── */
+    .legend {
+      background: #fdfaf3;
+      border: 1px solid #d6c89a;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 0.77rem;
+      line-height: 1.9;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.13);
+      min-width: 220px;
+    }
+    .legend h4 {
+      font-size: 0.78rem;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      border-bottom: 1px solid #d6c89a;
+      padding-bottom: 5px;
+    }
+    .legend-row { display: flex; align-items: center; gap: 8px; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+
+    /* ── Popup ── */
+    .leaflet-popup-content-wrapper {
+      border-radius: 8px !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18) !important;
+      font-family: 'Georgia', serif;
+    }
+    .leaflet-popup-content { font-size: 0.84rem; line-height: 1.55; min-width: 220px; }
+    .popup-title { font-weight: bold; font-size: 0.98rem; margin-bottom: 3px; }
+    .popup-day   { font-size: 0.73rem; font-style: italic; color: #7a6040; margin-bottom: 6px; }
+    .popup-time  { font-weight: bold; }
+    .popup-tip   { margin-top: 6px; font-size: 0.74rem; color: #a04010; font-style: italic; }
+    .popup-lavender { margin-top: 5px; font-size: 0.74rem; color: #6a4e9a; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Provence Driving Itinerary</h1>
+  <span>June 18–22, 2026 &nbsp;·&nbsp; Avignon → Luberon → Arles → Aix-en-Provence</span>
+</header>
+
+<div id="app">
+  <div id="sidebar"></div>
+  <div id="map"></div>
+</div>
+
+<script>
+// ── Day definitions ───────────────────────────────────────────────────────────
+const DAYS = [
+  { id:1, label:'Day 1', date:'Thursday, June 18',  sub:'Arrive Avignon · Orange',               color:'#2563eb' },
+  { id:2, label:'Day 2', date:'Friday, June 19',    sub:'Pont du Gard · Luberon · Gordes',        color:'#d97706' },
+  { id:3, label:'Day 3', date:'Saturday, June 20',  sub:'Roussillon · Apt Market · Les Baux · Arles', color:'#16a34a' },
+  { id:4, label:'Day 4', date:'Sunday, June 21',    sub:'Arles · Montmajour · Saint-Rémy · Aix', color:'#9333ea' },
+  { id:5, label:'Day 5', date:'Monday, June 22',    sub:'Aix-en-Provence · End 3:00pm',           color:'#dc2626' },
+];
+
+// ── Stops ─────────────────────────────────────────────────────────────────────
+const STOPS = [
+  // ── Day 1 ──
+  {
+    day:1, num:1,
+    name:'Avignon', stars:'★★★',
+    lat:43.9493, lng:4.8055,
+    time:'Arrive 2:00pm · overnight base',
+    desc:'Palais des Papes (largest Gothic palace in the world, UNESCO). Pont Saint-Bénézet. Rocher des Doms hilltop gardens with Rhône valley views.',
+    tip:'Overnight: La Mirande ★★★★★ (Relais & Châteaux) · Book timed entry for Palais des Papes in advance'
+  },
+  {
+    day:1, num:2,
+    name:'Orange', stars:'★★★',
+    lat:44.1369, lng:4.8091,
+    time:'~4:30pm · 32 km north of Avignon',
+    desc:'Théâtre Antique d\'Orange — Rome\'s best-preserved theater; 103m stage wall intact after 2,000 years (UNESCO). Arc de Triomphe (30 BC), one of Rome\'s most complete triumphal arches.',
+    tip:'Return to Avignon for dinner · allow 1.5 hrs in Orange'
+  },
+
+  // ── Day 2 ──
+  {
+    day:2, num:3,
+    name:'Pont du Gard', stars:'★★★',
+    lat:43.9472, lng:4.5345,
+    time:'9:00am · 25 km west of Avignon',
+    desc:'Rome\'s greatest surviving aqueduct — three tiers of arches spanning the Gardon river gorge. Walk the upper tier; swim in the river below in warm weather.',
+    tip:'Go early for best light and fewest crowds · allow 1.5 hrs'
+  },
+  {
+    day:2, num:4,
+    name:'L\'Isle-sur-la-Sorgue', stars:'★★',
+    lat:43.9194, lng:5.0483,
+    time:'11:00am · 35 km east',
+    desc:'Town threaded by fast turquoise channels of the Sorgue river. Over 300 antique dealers and galleries. Optional: Fontaine-de-Vaucluse (10 min further east) — mysterious spring erupting from the base of a sheer cliff.',
+    tip:'Sunday is the famous flea market; today browse permanent galleries'
+  },
+  {
+    day:2, num:5,
+    name:'Gordes', stars:'★★★',
+    lat:43.9114, lng:5.1694,
+    time:'1:00pm · 20 km east',
+    desc:'One of France\'s most beautiful villages — golden limestone tiers above the Luberon valley. Village des Bories: extraordinary prehistoric dry-stone hut settlement just outside the village.',
+    tip:'Overnight: La Bastide de Gordes ★★★★★ · pool, spa, panoramic views · book early'
+  },
+  {
+    day:2, num:6,
+    name:'Abbaye de Sénanque', stars:'★★★',
+    lat:43.9333, lng:5.1856,
+    time:'4:00pm · 4 km north of Gordes',
+    desc:'Working 12th-century Cistercian abbey surrounded by its own lavender fields — the most iconic image in all of Provence. Monks sell lavender honey, essential oil, and wine on-site.',
+    tip:'⚠ June 19 is early season — bloom may be budding or just beginning · check senanque.fr · confirm visiting hours',
+    lavender: true
+  },
+
+  // ── Day 3 ──
+  {
+    day:3, num:7,
+    name:'Roussillon', stars:'★★★',
+    lat:43.9006, lng:5.2944,
+    time:'8:30am · 10 km from Gordes',
+    desc:'Village built from and upon vivid ochre cliffs — glows red, orange and gold in morning light. Walk the Sentier des Ocres canyon trail (45 min circuit) through the rust-colored landscape.',
+    tip:'Go early for best light on the ochre · allow 1.5 hrs'
+  },
+  {
+    day:3, num:8,
+    name:'Apt — Saturday Market', stars:'★★★',
+    lat:43.8761, lng:5.3961,
+    time:'10:30am · 20 km southeast',
+    desc:'One of the finest Saturday markets in the Vaucluse. Famous for candied fruits (Apt is the world capital), lavender products, olive oil, goat cheese, tapenade, and local fabric. Fills the old town.',
+    tip:'Allow 1.5–2 hrs · pick up lunch provisions to eat en route'
+  },
+  {
+    day:3, num:9,
+    name:'Les Baux-de-Provence', stars:'★★★',
+    lat:43.7444, lng:4.7958,
+    time:'2:30pm · ~60 km southwest',
+    desc:'Ruined medieval citadel on white limestone Alpilles bluffs. Château des Baux — dramatic ruins with working trebuchets and panoramic views. Carrières de Lumières — monumental art projections in a vast former quarry cave.',
+    tip:'⚠ Book Carrières de Lumières in advance · carrieres-lumieres.com · allow 2 hrs total'
+  },
+  {
+    day:3, num:10,
+    name:'Arles', stars:'★★★',
+    lat:43.6767, lng:4.6278,
+    time:'5:00pm · 20 km south',
+    desc:'Roman amphitheater (Les Arènes) — arena for 20,000, still used today; climb for city views. Place du Forum — the café terrace Van Gogh painted in Café Terrace at Night. Fondation Vincent van Gogh art space.',
+    tip:'Overnight: Hôtel Jules César ★★★★★ (Christian Lacroix design, former Carmelite convent) · pool, spa'
+  },
+
+  // ── Day 4 ──
+  {
+    day:4, num:11,
+    name:'Abbaye de Montmajour', stars:'★★★',
+    lat:43.6994, lng:4.6622,
+    time:'11:00am · 5 km NE of Arles',
+    desc:'Vast Benedictine abbey on a rocky outcrop above the marshes — Van Gogh painted it obsessively from the surrounding wheat fields. Medieval church, Romanesque cloister, panoramic tower. Dramatically undervisited.',
+    tip:'⚠ Confirm Sunday hours · monuments-nationaux.fr · allow 1 hr · morning in Arles before this: Van Gogh trail + Les Alyscamps'
+  },
+  {
+    day:4, num:12,
+    name:'Saint-Rémy-de-Provence', stars:'★★★',
+    lat:43.7892, lng:4.8319,
+    time:'1:00pm · 20 km northeast through the Alpilles',
+    desc:'Sunday market on Place de la République (until ~1:30pm). Saint-Paul-de-Mausole: Van Gogh\'s asylum where he painted The Starry Night — bedroom and garden preserved. Les Antiques: Roman arch and mausoleum (30 BC). Glanum: extensive Roman ruins.',
+    tip:'⚠ Book Saint-Paul-de-Mausole · saintpauldemausole.fr · take scenic D27 through Alpilles'
+  },
+  {
+    day:4, num:13,
+    name:'Aix-en-Provence', stars:'★★★',
+    lat:43.5297, lng:5.4474,
+    time:'Arrive ~5:45pm · 30 km southeast',
+    desc:'Cours Mirabeau — great plane-tree boulevard with fountains and café terraces. Evening arrival. Dinner at Le Formal or Pierre Reboul for refined Provençal cuisine.',
+    tip:'Overnight: Villa Gallici ★★★★★ (Relais & Châteaux) · walled gardens, pool, finest address in Aix'
+  },
+
+  // ── Day 5 ──
+  {
+    day:5, num:14,
+    name:'Aix — Market + Cézanne', stars:'★★★',
+    lat:43.5315, lng:5.4480,
+    time:'8:00am',
+    desc:'Marché de la Place Richelme — Aix\'s finest daily food market, locals only. Atelier Cézanne studio preserved as he left it in 1906. Cathédrale Saint-Sauveur with 4th-century baptistery and exceptional Flemish triptych.',
+    tip:'⚠ Book timed entry for Atelier Cézanne · atelier-cezanne.com · allow 1.5 hrs combined'
+  },
+  {
+    day:5, num:15,
+    name:'Montagne Sainte-Victoire', stars:'★★★',
+    lat:43.5333, lng:5.6050,
+    time:'11:30am · 15 km east on D17',
+    desc:'The mountain Cézanne painted over 80 times. Drive the D17 along its base — the scale and color shift dramatically with the light. Pull-off viewpoints throughout; optional short walk up the lower slopes.',
+    tip:'Return to Aix by 1:30pm for final lunch · end of itinerary at 3:00pm'
+  },
+];
+
+// ── Route polylines ───────────────────────────────────────────────────────────
+const ROUTES = {
+  1: [ // Avignon → Orange → Avignon
+    [43.9493, 4.8055],
+    [44.1369, 4.8091],
+    [43.9493, 4.8055],
+  ],
+  2: [ // Avignon → Pont du Gard → L'Isle-sur-la-Sorgue → Gordes → Sénanque → Gordes
+    [43.9493, 4.8055],
+    [43.9472, 4.5345],
+    [43.9194, 5.0483],
+    [43.9114, 5.1694],
+    [43.9333, 5.1856],
+    [43.9114, 5.1694],
+  ],
+  3: [ // Gordes → Roussillon → Apt → [Cavaillon waypoint] → Les Baux → Arles
+    [43.9114, 5.1694],
+    [43.9006, 5.2944],
+    [43.8761, 5.3961],
+    [43.8350, 5.0380], // Cavaillon area
+    [43.7444, 4.7958],
+    [43.6767, 4.6278],
+  ],
+  4: [ // Arles → Montmajour → [Alpilles D17] → Saint-Rémy → Aix
+    [43.6767, 4.6278],
+    [43.6994, 4.6622],
+    [43.7200, 4.7200], // Alpilles waypoint
+    [43.7892, 4.8319],
+    [43.5297, 5.4474],
+  ],
+  5: [ // Aix → Montagne Sainte-Victoire → Aix
+    [43.5297, 5.4474],
+    [43.5333, 5.6050],
+    [43.5297, 5.4474],
+  ],
+};
+
+// ── Build sidebar ─────────────────────────────────────────────────────────────
+const sidebar = document.getElementById('sidebar');
+
+DAYS.forEach(day => {
+  const stops = STOPS.filter(s => s.day === day.id);
+  const section = document.createElement('div');
+  section.className = 'day-section';
+
+  section.innerHTML = `
+    <div class="day-header" style="border-color:${day.color}">
+      <div class="day-dot" style="background:${day.color}"></div>
+      <div>
+        <div class="day-title" style="color:${day.color}">${day.label} · ${day.date}</div>
+        <div class="day-sub">${day.sub}</div>
+      </div>
+    </div>`;
+
+  stops.forEach(stop => {
+    const item = document.createElement('div');
+    item.className = 'stop-item';
+    item.innerHTML = `
+      <div class="stop-num" style="background:${day.color}">${stop.num}</div>
+      <div class="stop-info">
+        <div class="stop-name">${stop.name} <span class="stars">${stop.stars}</span></div>
+        <div class="stop-desc">${stop.desc.length > 90 ? stop.desc.substring(0,90)+'…' : stop.desc}</div>
+        <div class="stop-time">${stop.time}</div>
+      </div>`;
+    item.addEventListener('click', () => {
+      map.setView([stop.lat, stop.lng], 13, { animate: true });
+      markers[stop.num - 1].openPopup();
+    });
+    section.appendChild(item);
+  });
+
+  sidebar.appendChild(section);
+});
+
+// ── Init map ──────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([43.85, 5.00], 9);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+// ── Draw routes ───────────────────────────────────────────────────────────────
+Object.entries(ROUTES).forEach(([dayId, coords]) => {
+  const day = DAYS.find(d => d.id === Number(dayId));
+  L.polyline(coords, {
+    color: day.color,
+    weight: 3,
+    opacity: 0.6,
+    dashArray: dayId === '5' ? '7,5' : null,
+  }).addTo(map);
+});
+
+// ── Custom SVG pin icon ───────────────────────────────────────────────────────
+function makeIcon(color, num) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="30" height="40" viewBox="0 0 30 40">
+      <path d="M15 0 C6.72 0 0 6.72 0 15 C0 26.25 15 40 15 40 C15 40 30 26.25 30 15 C30 6.72 23.28 0 15 0Z"
+            fill="${color}" stroke="white" stroke-width="2"/>
+      <text x="15" y="20" text-anchor="middle" fill="white"
+            font-family="Georgia,serif" font-size="12" font-weight="bold">${num}</text>
+    </svg>`;
+  return L.divIcon({
+    html: svg,
+    iconSize: [30, 40],
+    iconAnchor: [15, 40],
+    popupAnchor: [0, -40],
+    className: '',
+  });
+}
+
+// ── Place markers ─────────────────────────────────────────────────────────────
+const markers = [];
+
+STOPS.forEach(stop => {
+  const day = DAYS.find(d => d.id === stop.day);
+  const icon = makeIcon(day.color, stop.num);
+
+  const lavenderNote = stop.lavender
+    ? `<div class="popup-lavender">🌿 Lavender note: June 19 is early season — bloom may be budding. Check conditions before visiting.</div>`
+    : '';
+
+  const popupHtml = `
+    <div class="popup-title" style="color:${day.color}">${stop.num}. ${stop.name}</div>
+    <div class="popup-day">${day.label} &nbsp;·&nbsp; ${day.date}</div>
+    <div>
+      <span class="popup-time">${stop.time}</span><br/>
+      ${stop.desc}
+      ${lavenderNote}
+      ${stop.tip ? `<div class="popup-tip">${stop.tip}</div>` : ''}
+    </div>`;
+
+  const marker = L.marker([stop.lat, stop.lng], { icon })
+    .addTo(map)
+    .bindPopup(popupHtml, { maxWidth: 300 });
+
+  markers.push(marker);
+});
+
+// ── Legend ────────────────────────────────────────────────────────────────────
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = () => {
+  const div = L.DomUtil.create('div', 'legend');
+  div.innerHTML = `
+    <h4>Itinerary</h4>
+    ${DAYS.map(d => `
+      <div class="legend-row">
+        <div class="legend-dot" style="background:${d.color}"></div>
+        <span><strong>${d.label}</strong> — ${d.sub}</span>
+      </div>`).join('')}
+    <div style="margin-top:8px;padding-top:6px;border-top:1px solid #d6c89a;font-size:0.73rem;color:#7a6040;font-style:italic">
+      Dashed line = Day 5 local loop
+    </div>`;
+  return div;
+};
+legend.addTo(map);
+
+// ── Fit bounds ────────────────────────────────────────────────────────────────
+const allLatLngs = STOPS.map(s => [s.lat, s.lng]);
+map.fitBounds(allLatLngs, { padding: [40, 40] });
+</script>
+</body>
+</html>
