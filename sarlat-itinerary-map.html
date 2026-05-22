@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sarlat Driving Itinerary — June 25–28, 2026</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Georgia', serif;
+      background: #f5f0e8;
+      color: #2c2416;
+    }
+
+    header {
+      background: #2c2416;
+      color: #f5f0e8;
+      padding: 18px 24px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+    header h1 { font-size: 1.4rem; font-weight: normal; letter-spacing: 0.04em; }
+    header span { font-size: 0.9rem; color: #b8a98a; }
+
+    #app { display: flex; height: calc(100vh - 60px); }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 320px;
+      min-width: 280px;
+      overflow-y: auto;
+      background: #fdfaf4;
+      border-right: 1px solid #d4c9a8;
+      padding: 16px;
+    }
+
+    .day-section { margin-bottom: 20px; }
+
+    .day-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid;
+    }
+
+    .day-dot {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .day-title { font-size: 0.82rem; font-weight: bold; letter-spacing: 0.05em; text-transform: uppercase; }
+    .day-sub   { font-size: 0.75rem; color: #7a6a50; margin-top: 1px; }
+
+    .stop-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 8px 6px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .stop-item:hover { background: #ede7d3; }
+
+    .stop-num {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem;
+      font-weight: bold;
+      color: #fff;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .stop-info { flex: 1; }
+    .stop-name { font-size: 0.88rem; font-weight: bold; }
+    .stop-desc { font-size: 0.76rem; color: #7a6a50; margin-top: 2px; line-height: 1.4; }
+    .stop-time { font-size: 0.72rem; color: #a08060; margin-top: 3px; font-style: italic; }
+
+    .stars { color: #c8960c; font-size: 0.72rem; }
+
+    /* ── Map ── */
+    #map { flex: 1; }
+
+    /* ── Legend ── */
+    .legend {
+      background: #fdfaf4;
+      border: 1px solid #d4c9a8;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 0.78rem;
+      line-height: 1.8;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    }
+    .legend h4 { font-size: 0.8rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .legend-row { display: flex; align-items: center; gap: 8px; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .legend-line { width: 24px; height: 3px; flex-shrink: 0; border-radius: 2px; }
+
+    /* Leaflet popup tweaks */
+    .leaflet-popup-content-wrapper {
+      border-radius: 8px !important;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18) !important;
+      font-family: 'Georgia', serif;
+    }
+    .leaflet-popup-content { font-size: 0.85rem; line-height: 1.5; }
+    .popup-title { font-weight: bold; font-size: 1rem; margin-bottom: 4px; }
+    .popup-day  { font-size: 0.75rem; font-style: italic; color: #7a6a50; margin-bottom: 6px; }
+    .popup-body { color: #2c2416; }
+    .popup-tip  { margin-top: 6px; font-size: 0.75rem; color: #a05020; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Sarlat Driving Itinerary</h1>
+  <span>June 25–28, 2026 &nbsp;·&nbsp; Base: Sarlat-la-Canéda</span>
+</header>
+
+<div id="app">
+  <div id="sidebar"></div>
+  <div id="map"></div>
+</div>
+
+<script>
+// ── Colour palette ────────────────────────────────────────────────────────────
+const DAYS = [
+  { id: 1, label: 'Day 1', date: 'Thursday, June 25', sub: 'Sarlat + Dordogne Valley Loop', color: '#2563eb', border: '#1d4ed8' },
+  { id: 2, label: 'Day 2', date: 'Friday, June 26',   sub: 'Vézère Valley Cave Day',        color: '#d97706', border: '#b45309' },
+  { id: 3, label: 'Day 3', date: 'Saturday, June 27', sub: 'Market + Lascaux IV',            color: '#16a34a', border: '#15803d' },
+  { id: 4, label: 'Day 4', date: 'Sunday, June 28',   sub: 'Depart → Saint-Émilion',         color: '#9333ea', border: '#7e22ce' },
+];
+
+// ── All stops ─────────────────────────────────────────────────────────────────
+const STOPS = [
+  // Day 1
+  {
+    day: 1, num: 1, name: 'Sarlat-la-Canéda', stars: '★★★',
+    lat: 44.8892, lng: 1.2175,
+    time: 'Morning arrival — all day base',
+    desc: 'Medieval old town, golden limestone streets, Cathedral quarter. Home base for 3 nights.',
+    tip: 'Check into La Villa Mazès ★★★★★'
+  },
+  {
+    day: 1, num: 2, name: 'Château de Beynac', stars: '★★★',
+    lat: 44.8283, lng: 1.1519,
+    time: '~2:00pm · 10 km from Sarlat',
+    desc: 'One of France\'s great medieval fortresses, perched 150m above the Dordogne on sheer cliffs.',
+    tip: 'Allow 1.5 hrs · climb to ramparts for valley views'
+  },
+  {
+    day: 1, num: 3, name: 'La Roque-Gageac', stars: '★★★',
+    lat: 44.8267, lng: 1.1847,
+    time: '~4:00pm · 5 km from Beynac',
+    desc: 'Troglodyte village against the golden cliffs. Gabarre flat-bottomed boat ride on the Dordogne.',
+    tip: '★★★ Gabarre boat ride — 1 hr on the river · book ahead'
+  },
+  {
+    day: 1, num: 4, name: 'Domme', stars: '★★',
+    lat: 44.8019, lng: 1.2100,
+    time: '~5:30pm · 6 km from Roque-Gageac',
+    desc: 'Bastide village on a dramatic promontory. Best panoramic view of the Dordogne valley bend in the region.',
+    tip: 'Grottes de Domme beneath the market hall · walk the ramparts'
+  },
+
+  // Day 2
+  {
+    day: 2, num: 5, name: 'Font-de-Gaume', stars: '★★★',
+    lat: 44.9333, lng: 1.0119,
+    time: 'ENGLISH TOUR — confirm time on booking · 8:00am arrival',
+    desc: '17,000-year-old original polychrome prehistoric paintings — one of only two such caves open to the public in the world. Guided English tour only.',
+    tip: '⚠ Only 78 visitors/day — book English tour immediately at eyzies.monuments-nationaux.fr'
+  },
+  {
+    day: 2, num: 6, name: 'Grotte du Grand Roc', stars: '★★',
+    lat: 44.9433, lng: 0.9983,
+    time: 'After Font-de-Gaume · ~3 km',
+    desc: 'Cliff ledge cave above the Vézère with extraordinary stalactite formations. English guides/audio available.',
+    tip: 'Allow 45 min · views over the Vézère from the cave entrance'
+  },
+  {
+    day: 2, num: 7, name: 'Les Eyzies-de-Tayac', stars: '★★★',
+    lat: 44.9364, lng: 1.0153,
+    time: 'Midday · lunch + museum',
+    desc: 'Capital of prehistory. Musée National de Préhistoire built into the overhanging cliff — finest prehistoric museum in France.',
+    tip: 'Lunch at Le Moulin de la Beune on the river · English labeling throughout museum'
+  },
+  {
+    day: 2, num: 8, name: 'Vézère Canoe (Les Eyzies)', stars: '★★',
+    lat: 44.9380, lng: 1.0200,
+    time: '~2:00pm · 2-hour paddle',
+    desc: 'Canoe or kayak downstream through the limestone gorge past prehistoric cave entrances. With Canoë Vallée Vézère.',
+    tip: 'Book in advance · shuttle returns you to Les Eyzies'
+  },
+  {
+    day: 2, num: 9, name: 'Rouffignac Cave', stars: '★★★',
+    lat: 45.0456, lng: 0.9833,
+    time: '~5:00pm · 15 km from Les Eyzies',
+    desc: 'Electric train 8km into the earth through galleries of 250+ mammoth engravings. Vast scale unlike any other cave.',
+    tip: '⚠ Confirm last English tour time when booking · usually 5:00–5:30pm in summer'
+  },
+
+  // Day 3
+  {
+    day: 3, num: 10, name: 'Sarlat Saturday Market', stars: '★★★',
+    lat: 44.8905, lng: 1.2155,
+    time: '8:00–11:00am',
+    desc: 'One of the finest weekly markets in France. Foie gras, truffles, walnut oil, confit, local cheese, Bergerac wine.',
+    tip: 'Go before 10am for best selection · have coffee on Place de la Liberté'
+  },
+  {
+    day: 3, num: 11, name: 'Lascaux IV (Montignac)', stars: '★★★',
+    lat: 45.0617, lng: 1.1617,
+    time: 'ENGLISH TOUR — book first post-noon slot · 25 km from Sarlat',
+    desc: 'The official Lascaux experience — full-scale replica of the original cave plus world-class immersive museum. Hall of the Bulls, Axial Gallery, and more.',
+    tip: '⚠ Book English guided tour on lascaux.fr — Saturday is busiest day, pre-book is essential'
+  },
+
+  // Day 4
+  {
+    day: 4, num: 12, name: 'Sarlat (Depart)', stars: '',
+    lat: 44.8892, lng: 1.2180,
+    time: '~10:30am departure',
+    desc: 'Final morning stroll through the quiet Sunday old town before check-out.',
+    tip: 'Drive SW: Sarlat → Bergerac → Saint-Émilion (~1.5 hrs)'
+  },
+  {
+    day: 4, num: 13, name: 'Saint-Émilion', stars: '★★★',
+    lat: 44.8944, lng: -0.1556,
+    time: 'Arrive ~Noon',
+    desc: 'UNESCO hilltop wine village. Hostellerie de Plaisance ★★★★★ or Château Grand Barrail ★★★★★.',
+    tip: 'Château du Roi viewpoint · underground monolithic church · wine tasting'
+  },
+];
+
+// ── Route polylines (ordered lat/lng per day) ─────────────────────────────────
+const ROUTES = {
+  1: [ // Sarlat → Beynac → Roque-Gageac → Domme → Sarlat
+    [44.8892, 1.2175],
+    [44.8283, 1.1519],
+    [44.8267, 1.1847],
+    [44.8019, 1.2100],
+    [44.8892, 1.2175],
+  ],
+  2: [ // Sarlat → Font-de-Gaume → Grand Roc → Les Eyzies → Rouffignac → Sarlat
+    [44.8892, 1.2175],
+    [44.9333, 1.0119],
+    [44.9433, 0.9983],
+    [44.9364, 1.0153],
+    [45.0456, 0.9833],
+    [44.8892, 1.2175],
+  ],
+  3: [ // Sarlat market → Lascaux IV → Sarlat
+    [44.8892, 1.2175],
+    [45.0617, 1.1617],
+    [44.8892, 1.2175],
+  ],
+  4: [ // Sarlat → Saint-Émilion
+    [44.8892, 1.2175],
+    [44.7300, 0.5200], // Bergerac waypoint
+    [44.8944, -0.1556],
+  ],
+};
+
+// ── Build sidebar ─────────────────────────────────────────────────────────────
+const sidebar = document.getElementById('sidebar');
+
+DAYS.forEach(day => {
+  const stops = STOPS.filter(s => s.day === day.id);
+  const section = document.createElement('div');
+  section.className = 'day-section';
+
+  section.innerHTML = `
+    <div class="day-header" style="border-color:${day.color}">
+      <div class="day-dot" style="background:${day.color}"></div>
+      <div>
+        <div class="day-title" style="color:${day.color}">${day.label} · ${day.date}</div>
+        <div class="day-sub">${day.sub}</div>
+      </div>
+    </div>
+  `;
+
+  stops.forEach(stop => {
+    const item = document.createElement('div');
+    item.className = 'stop-item';
+    item.innerHTML = `
+      <div class="stop-num" style="background:${day.color}">${stop.num}</div>
+      <div class="stop-info">
+        <div class="stop-name">${stop.name} <span class="stars">${stop.stars}</span></div>
+        <div class="stop-desc">${stop.desc}</div>
+        <div class="stop-time">${stop.time}</div>
+      </div>
+    `;
+    item.addEventListener('click', () => {
+      map.setView([stop.lat, stop.lng], 13, { animate: true });
+      markers[stop.num - 1].openPopup();
+    });
+    section.appendChild(item);
+  });
+
+  sidebar.appendChild(section);
+});
+
+// ── Init map ──────────────────────────────────────────────────────────────────
+const map = L.map('map').setView([44.93, 0.95], 10);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+}).addTo(map);
+
+// ── Draw routes ───────────────────────────────────────────────────────────────
+Object.entries(ROUTES).forEach(([dayId, coords]) => {
+  const day = DAYS.find(d => d.id === Number(dayId));
+  L.polyline(coords, {
+    color: day.color,
+    weight: 3,
+    opacity: 0.65,
+    dashArray: dayId === '4' ? '8, 6' : null,
+  }).addTo(map);
+});
+
+// ── Draw markers ──────────────────────────────────────────────────────────────
+const markers = [];
+
+function makeIcon(color, num) {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="42" viewBox="0 0 32 42">
+      <path d="M16 0 C7.16 0 0 7.16 0 16 C0 28 16 42 16 42 C16 42 32 28 32 16 C32 7.16 24.84 0 16 0Z"
+            fill="${color}" stroke="white" stroke-width="2"/>
+      <text x="16" y="21" text-anchor="middle" fill="white"
+            font-family="Georgia,serif" font-size="13" font-weight="bold">${num}</text>
+    </svg>`;
+  return L.divIcon({
+    html: svg,
+    iconSize: [32, 42],
+    iconAnchor: [16, 42],
+    popupAnchor: [0, -42],
+    className: '',
+  });
+}
+
+STOPS.forEach(stop => {
+  const day = DAYS.find(d => d.id === stop.day);
+  const icon = makeIcon(day.color, stop.num);
+
+  const popupHtml = `
+    <div class="popup-title" style="color:${day.color}">${stop.num}. ${stop.name}</div>
+    <div class="popup-day">${day.label} · ${day.date}</div>
+    <div class="popup-body">
+      <strong>${stop.time}</strong><br/>
+      ${stop.desc}
+      ${stop.tip ? `<div class="popup-tip">${stop.tip}</div>` : ''}
+    </div>`;
+
+  const marker = L.marker([stop.lat, stop.lng], { icon })
+    .addTo(map)
+    .bindPopup(popupHtml, { maxWidth: 280 });
+
+  markers.push(marker);
+});
+
+// ── Legend ────────────────────────────────────────────────────────────────────
+const legend = L.control({ position: 'bottomright' });
+legend.onAdd = () => {
+  const div = L.DomUtil.create('div', 'legend');
+  div.innerHTML = `
+    <h4>Legend</h4>
+    ${DAYS.map(d => `
+      <div class="legend-row">
+        <div class="legend-dot" style="background:${d.color}"></div>
+        <span><strong>${d.label}</strong> — ${d.sub}</span>
+      </div>`).join('')}
+    <div style="margin-top:8px;border-top:1px solid #d4c9a8;padding-top:8px">
+      <div class="legend-row">
+        <div class="legend-line" style="background:#9333ea"></div>
+        <span style="font-style:italic">Dashed = departure route</span>
+      </div>
+    </div>`;
+  return div;
+};
+legend.addTo(map);
+
+// ── Fit map to all stops ──────────────────────────────────────────────────────
+const allLatLngs = STOPS.map(s => [s.lat, s.lng]);
+map.fitBounds(allLatLngs, { padding: [40, 40] });
+</script>
+</body>
+</html>
