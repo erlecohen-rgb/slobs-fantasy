@@ -16,7 +16,7 @@ interface Team {
   roster_players: RosterPlayer[];
 }
 
-const BATTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "UTIL", "DH"];
+const BATTER_POSITIONS = ["C", "1B", "2B", "3B", "SS", "LF", "CF", "RF", "OF", "UTIL", "DH", "SP", "RP"];
 const PITCHER_POSITIONS = ["SP", "RP"];
 
 function getMonday(d: Date): Date {
