@@ -132,6 +132,10 @@ async function calculateBatterScore(
       (sum: number, f: Record<string, unknown>) => sum + Number(f.passedBall || f.passedBalls || 0),
       0
     );
+    const wildPitches = fieldingForGame.reduce(
+      (sum: number, f: Record<string, unknown>) => sum + Number(f.wildPitch || f.wildPitches || 0),
+      0
+    );
 
     return {
       date: gameDate,
@@ -147,6 +151,7 @@ async function calculateBatterScore(
       hitByPitch: Number(g.hitByPitch || 0),
       errors,
       passedBalls,
+      wildPitches,
       playedPosition: positionsPlayed.some((p: string) => positionMatches(position, p)),
       positionsPlayed,
     };
@@ -167,6 +172,7 @@ async function calculateBatterScore(
     hitByPitch: gameLog.reduce((s, g) => s + g.hitByPitch, 0),
     errors: gameLog.reduce((s, g) => s + g.errors, 0),
     passedBalls: gameLog.reduce((s, g) => s + g.passedBalls, 0),
+    wildPitches: gameLog.reduce((s, g) => s + g.wildPitches, 0),
     gameLog,
   };
 
