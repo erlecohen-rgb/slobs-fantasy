@@ -66,7 +66,8 @@ export async function GET(request: NextRequest) {
 // Players in active_roster_player_ids get is_active=true, all others get is_active=false.
 export async function POST(request: NextRequest) {
   const supabase = createServiceClient();
-  const { team_id, start_date, active_roster_player_ids } = await request.json();
+  const { team_id, start_date, active_roster_player_ids, activated_positions } = await request.json();
+  const positionOverrides: Record<string, string> = activated_positions || {};
 
   if (!team_id || !start_date || !Array.isArray(active_roster_player_ids)) {
     return NextResponse.json({ error: "team_id, start_date, and active_roster_player_ids required" }, { status: 400 });
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
     season_year,
     roster_player_id: p.id,
     mlb_player_id: p.mlb_player_id,
-    activated_position: p.primary_position,
+    activated_position: positionOverrides[p.id] || p.primary_position,
     is_active: activeSet.has(p.id),
   }));
 

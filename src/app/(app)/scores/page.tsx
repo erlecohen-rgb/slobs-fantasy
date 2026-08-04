@@ -62,6 +62,8 @@ export default function ScoresPage() {
   const [endDate, setEndDate] = useState("");
   const [shortWeek, setShortWeek] = useState(false);
   const [activePlayers, setActivePlayers] = useState<Set<string>>(new Set());
+  // Maps rosterId → activated position (may differ from primary_position, e.g. UTIL or DH)
+  const [activatedPositions, setActivatedPositions] = useState<Map<string, string>>(new Map());
   const [lineupLoaded, setLineupLoaded] = useState(false);
   const [savingLineup, setSavingLineup] = useState(false);
   const [lineupSaved, setLineupSaved] = useState(false);
@@ -104,18 +106,22 @@ export default function ScoresPage() {
     fetch(`/api/roster/lineup?team_id=${selectedTeamId}&start_date=${startDate}&end_date=${endDate}`)
       .then((r) => r.json())
       .then((data) => {
-        const players: { roster_player_id: string }[] = data.players || [];
+        const players: { roster_player_id: string; activated_position: string }[] = data.players || [];
         if (players.length > 0) {
           setActivePlayers(new Set(players.map((p) => p.roster_player_id)));
+          const posMap = new Map<string, string>();
+          players.forEach((p) => posMap.set(p.roster_player_id, p.activated_position));
+          setActivatedPositions(posMap);
         } else {
-          // No saved lineup — default all active
+          // No saved lineup — default all active with primary positions
           setActivePlayers(new Set(team.roster_players.map((p) => p.id)));
+          setActivatedPositions(new Map(team.roster_players.map((p) => [p.id, p.primary_position])));
         }
         setLineupLoaded(true);
       })
       .catch(() => {
-        // On error, default to all active
         setActivePlayers(new Set(team.roster_players.map((p) => p.id)));
+        setActivatedPositions(new Map(team.roster_players.map((p) => [p.id, p.primary_position])));
         setLineupLoaded(true);
       });
   }, [selectedTeamId, startDate, endDate, teams]);
@@ -123,9 +129,21 @@ export default function ScoresPage() {
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
   const allPlayers = selectedTeam?.roster_players || [];
 
-  // Two-way player safe: use activated position, not is_pitcher flag
+  // Two-way player safe: use primary_position for pitcher classification
   const isPitcherPosition = (p: RosterPlayer) =>
     p.primary_position === "SP" || p.primary_position === "RP";
+
+  function getActivatedPosition(rosterId: string, primaryPosition: string): string {
+    return activatedPositions.get(rosterId) || primaryPosition;
+  }
+
+  function setActivatedPosition(rosterId: string, position: string) {
+    setActivatedPositions((prev) => {
+      const next = new Map(prev);
+      next.set(rosterId, position);
+      return next;
+    });
+  }
 
   function setWeekFromOffset(offset: number) {
     const current = startDate ? new Date(startDate + "T12:00:00") : getMonday(new Date());
@@ -149,23 +167,28 @@ export default function ScoresPage() {
     const errors: string[] = [];
     const warnings: string[] = [];
 
-    // Check batter positions
-    const filledPositions = new Set(activeBats.map((p) => p.primary_position));
-    const missingPositions = REQUIRED_BATTER_POSITIONS.filter((pos) => !filledPositions.has(pos));
+    // Check batter positions using activated positions (UTIL/DH fill wildcard, not specific slots)
+    const missingPositions = REQUIRED_BATTER_POSITIONS.filter((pos) => {
+      if (pos === "OF") {
+        return !activeBats.some((p) => {
+          const ap = getActivatedPosition(p.id, p.primary_position);
+          return ["OF", "LF", "CF", "RF"].includes(ap);
+        });
+      }
+      return !activeBats.some((p) => getActivatedPosition(p.id, p.primary_position) === pos);
+    });
     if (missingPositions.length > 0) {
       warnings.push(`Missing batter position(s): ${missingPositions.join(", ")}`);
     }
 
-    // Check for duplicate positions (more than allowed at a position)
-    // OF can have multiple, others should be 1
+    // Check for duplicate positions (more than allowed)
     for (const pos of ["C", "1B", "2B", "3B", "SS", "DH"]) {
-      const count = activeBats.filter((p) => p.primary_position === pos).length;
+      const count = activeBats.filter((p) => getActivatedPosition(p.id, p.primary_position) === pos).length;
       if (count > 1) {
         warnings.push(`${count} players at ${pos} (expected 1)`);
       }
     }
 
-    // Check pitchers
     if (activeSP.length < REQUIRED_SP) {
       warnings.push(`${activeSP.length} SP active (expected ${REQUIRED_SP})`);
     }
@@ -173,7 +196,6 @@ export default function ScoresPage() {
       warnings.push(`${activeRP.length} RP active (expected ${REQUIRED_RP})`);
     }
 
-    // No active players at all = hard error
     if (activeList.filter((p) => p.mlb_player_id > 0).length === 0) {
       errors.push("No active players with MLB IDs");
     }
@@ -197,18 +219,21 @@ export default function ScoresPage() {
     setError(null);
     setWeekResult(null);
 
-    // Score ALL roster entries independently. Two-way players (e.g. Ohtani)
-    // have separate DH and SP entries — each gets its own score.
-    // Only active entries count toward the weekly total.
+    // Use activated position for each player, not just primary_position.
+    // This lets batters play at UTIL/DH for easier qualification.
     const players = allPlayers
       .filter((p) => p.mlb_player_id > 0)
-      .map((p) => ({
-        rosterId: p.id,
-        mlbPlayerId: p.mlb_player_id,
-        position: p.primary_position,
-        isPitcher: p.primary_position === "SP" || p.primary_position === "RP",
-        role: (p.primary_position === "SP" || p.primary_position === "RP") ? p.primary_position : undefined,
-      }));
+      .map((p) => {
+        const position = getActivatedPosition(p.id, p.primary_position);
+        const pitcherRole = isPitcherPosition(p) ? p.primary_position as "SP" | "RP" : undefined;
+        return {
+          rosterId: p.id,
+          mlbPlayerId: p.mlb_player_id,
+          position,
+          isPitcher: isPitcherPosition(p),
+          role: pitcherRole,
+        };
+      });
 
     if (players.length === 0) {
       setError("No players with MLB IDs found. Players need MLB IDs to calculate scores.");
@@ -221,7 +246,7 @@ export default function ScoresPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          weekNumber: 1, // not used for date range
+          weekNumber: 1, // not used when startDate/endDate are provided
           seasonYear: 2026,
           players,
           shortWeek,
@@ -241,10 +266,8 @@ export default function ScoresPage() {
     setCalculating(false);
   }
 
-  // Build lookup maps keyed by roster UUID so players with the same mlb_player_id
-  // (e.g. two roster entries with a shared/wrong ID) remain distinct.
-  const playerNameMap = new Map<string, string>(); // rosterId → name
-  const activeKeys = activePlayers; // activeKeys IS activePlayers (Set<rosterId>)
+  const playerNameMap = new Map<string, string>();
+  const activeKeys = activePlayers;
 
   allPlayers.forEach((p) => {
     playerNameMap.set(p.id, p.mlb_player_name);
@@ -262,6 +285,7 @@ export default function ScoresPage() {
           team_id: selectedTeamId,
           start_date: startDate,
           active_roster_player_ids: [...activePlayers],
+          activated_positions: Object.fromEntries(activatedPositions),
         }),
       });
       if (!res.ok) throw new Error("Failed to save");
@@ -285,7 +309,6 @@ export default function ScoresPage() {
   const batterResults = weekResult?.results.filter((r) => r.position !== "SP" && r.position !== "RP") || [];
   const pitcherResults = weekResult?.results.filter((r) => r.position === "SP" || r.position === "RP") || [];
 
-  // Only count active + qualified entries in totals (keyed by rosterId)
   const batterTotal = batterResults
     .filter((r) => r.rosterId && activeKeys.has(r.rosterId))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
@@ -293,6 +316,9 @@ export default function ScoresPage() {
     .filter((r) => r.rosterId && activeKeys.has(r.rosterId))
     .reduce((s, r) => s + (r.scoring.qualified ? r.scoring.points : 0), 0);
   const weekTotal = batterTotal + pitcherTotal;
+
+  const batters = allPlayers.filter((p) => !isPitcherPosition(p));
+  const pitchers = allPlayers.filter((p) => isPitcherPosition(p));
 
   return (
     <div className="space-y-6">
@@ -365,7 +391,7 @@ export default function ScoresPage() {
           <ul className="list-disc list-inside space-y-0.5">
             {rosterCheck.warnings.map((w, i) => <li key={i}>{w}</li>)}
           </ul>
-          <p className="mt-2 text-xs text-amber-600">Click &quot;Calculate Anyway&quot; to proceed, or fix your lineup in the <a href="/roster" className="underline">Roster tab</a>.</p>
+          <p className="mt-2 text-xs text-amber-600">Click &quot;Calculate Anyway&quot; to proceed, or adjust the lineup below.</p>
         </div>
       )}
       {!showWarningConfirm && rosterCheck.warnings.length > 0 && !weekResult && (
@@ -378,31 +404,99 @@ export default function ScoresPage() {
       <ForecastPanel teamId={selectedTeamId} currentStartDate={startDate} />
 
       {/* Lineup Slots Visual */}
-      <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} />
+      <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} activatedPositions={activatedPositions} />
 
-      {/* Lineup controls */}
+      {/* Lineup Editor — always visible once lineup is loaded */}
       {lineupLoaded && (
-        <div className="text-xs text-gray-500 flex items-center gap-1.5 flex-wrap">
-          <span className="font-medium text-gray-700">{activePlayers.size} active</span>
-          <span className="text-gray-300">/</span>
-          <span>{allPlayers.length - activePlayers.size} bench</span>
-          <span className="text-gray-300">·</span>
-          <button
-            onClick={() => setActivePlayers(new Set(allPlayers.map((p) => p.id)))}
-            className="text-blue-600 underline hover:text-blue-800"
-          >
-            Set all active
-          </button>
-          <span className="text-gray-300">·</span>
-          <button
-            onClick={saveLineup}
-            disabled={savingLineup}
-            className="text-green-700 underline hover:text-green-900 disabled:opacity-50"
-          >
-            {savingLineup ? "Saving..." : lineupSaved ? "Saved!" : "Save lineup"}
-          </button>
-          <span className="text-gray-300">·</span>
-          <a href="/roster" className="text-gray-400 underline hover:text-gray-600">Edit on Roster tab →</a>
+        <div className="bg-white rounded-lg shadow">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-3">
+              <span className="font-semibold text-sm">Lineup</span>
+              <span className="text-xs text-gray-400">{activePlayers.size} active · {allPlayers.length - activePlayers.size} bench</span>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <button
+                onClick={() => {
+                  setActivePlayers(new Set(allPlayers.map((p) => p.id)));
+                }}
+                className="text-blue-600 underline hover:text-blue-800"
+              >
+                Set all active
+              </button>
+              <span className="text-gray-300">·</span>
+              <button
+                onClick={saveLineup}
+                disabled={savingLineup}
+                className="text-green-700 underline hover:text-green-900 disabled:opacity-50"
+              >
+                {savingLineup ? "Saving..." : lineupSaved ? "✓ Saved" : "Save lineup"}
+              </button>
+              <span className="text-gray-300">·</span>
+              <a href="/roster" className="text-gray-400 underline hover:text-gray-600">Edit roster →</a>
+            </div>
+          </div>
+
+          <div className="px-4 py-3 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+            {/* Batters */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Batters</p>
+              <div className="space-y-1.5">
+                {batters.map((p) => {
+                  const isActive = activePlayers.has(p.id);
+                  const activatedPos = getActivatedPosition(p.id, p.primary_position);
+                  // Position options: primary + UTIL + DH (skip if already that)
+                  const posOptions = Array.from(new Set([p.primary_position, "UTIL", "DH"]));
+                  return (
+                    <div key={p.id} className={`flex items-center gap-2 ${!isActive ? "opacity-40" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={isActive}
+                        onChange={() => togglePlayerActive(p.id)}
+                        className="rounded border-gray-300 text-green-600 flex-shrink-0"
+                      />
+                      <select
+                        value={activatedPos}
+                        onChange={(e) => setActivatedPosition(p.id, e.target.value)}
+                        className="text-xs border border-gray-200 rounded px-1 py-0.5 font-mono bg-green-50 text-green-800 w-16 flex-shrink-0 cursor-pointer"
+                        title="Activated position — affects qualification"
+                      >
+                        {posOptions.map((pos) => (
+                          <option key={pos} value={pos}>{pos}</option>
+                        ))}
+                      </select>
+                      <span className={`text-sm truncate ${!isActive ? "text-gray-400" : ""}`}>{p.mlb_player_name}</span>
+                      {!isActive && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded ml-auto flex-shrink-0">bench</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Pitchers */}
+            <div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Pitchers</p>
+              <div className="space-y-1.5">
+                {pitchers.map((p) => {
+                  const isActive = activePlayers.has(p.id);
+                  return (
+                    <div key={p.id} className={`flex items-center gap-2 ${!isActive ? "opacity-40" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={isActive}
+                        onChange={() => togglePlayerActive(p.id)}
+                        className="rounded border-gray-300 text-blue-600 flex-shrink-0"
+                      />
+                      <span className="text-xs font-mono px-1 py-0.5 rounded bg-blue-100 text-blue-800 w-16 text-center flex-shrink-0">
+                        {p.primary_position}
+                      </span>
+                      <span className={`text-sm truncate ${!isActive ? "text-gray-400" : ""}`}>{p.mlb_player_name}</span>
+                      {!isActive && <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded ml-auto flex-shrink-0">bench</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -485,7 +579,6 @@ function ForecastPanel({
   const [error, setError] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
-  // Forecast is always for NEXT week (Mon-Sun after the current period)
   const baseDate = currentStartDate || fmt(getMonday(new Date()));
   const nextMonday = new Date(baseDate + "T12:00:00");
   nextMonday.setDate(nextMonday.getDate() + 7);
@@ -560,9 +653,11 @@ function ForecastPanel({
 function SlotsBar({
   allPlayers,
   activePlayers,
+  activatedPositions,
 }: {
   allPlayers: RosterPlayer[];
   activePlayers: Set<string>;
+  activatedPositions: Map<string, string>;
 }) {
   const activeList = allPlayers.filter((p) => activePlayers.has(p.id));
 
@@ -583,7 +678,13 @@ function SlotsBar({
 
   function getPlayersAtPos(pos: string, isPitcher: boolean) {
     return activeList
-      .filter((p) => p.primary_position === pos && (p.primary_position === "SP" || p.primary_position === "RP") === isPitcher)
+      .filter((p) => {
+        const ap = activatedPositions.get(p.id) || p.primary_position;
+        const isPit = p.primary_position === "SP" || p.primary_position === "RP";
+        if (isPit !== isPitcher) return false;
+        if (pos === "OF") return ["OF", "LF", "CF", "RF"].includes(ap);
+        return ap === pos;
+      })
       .map((p) => p.mlb_player_name);
   }
 
@@ -598,13 +699,12 @@ function SlotsBar({
     return slots.flatMap((slot) => {
       const names = getPlayersAtPos(slot.pos, isPitcher);
       const required = slot.count;
-      // Show required slots + any overflow
       const totalToShow = Math.max(required, names.length);
       return Array.from({ length: totalToShow }, (_, i) => {
         const playerName = names[i] || "";
         const shortName = playerName ? playerName.split(" ").slice(-1)[0] : "";
         const isFilled = i < names.length;
-        const isOverflow = i >= required; // extra player beyond required slots
+        const isOverflow = i >= required;
 
         let className: string;
         if (isOverflow) {
@@ -659,7 +759,6 @@ function BreakdownTable({
 }) {
   const [expandedGames, setExpandedGames] = useState<Set<number>>(new Set());
 
-  // For pitchers, group items by game (items starting with "Game:" are headers)
   if (isPitcher) {
     const groups: { header: typeof breakdown[0]; items: typeof breakdown }[] = [];
     for (const item of breakdown) {
@@ -668,7 +767,6 @@ function BreakdownTable({
       } else if (groups.length > 0) {
         groups[groups.length - 1].items.push(item);
       } else {
-        // Item before any game header (shouldn't happen, but handle gracefully)
         groups.push({ header: { category: "Summary", stat: 0, points: 0, note: "" }, items: [item] });
       }
     }
@@ -724,7 +822,6 @@ function BreakdownTable({
     );
   }
 
-  // For batters, flat table (same as before)
   return (
     <table className="w-full text-xs">
       <thead>
