@@ -44,7 +44,10 @@ export async function PATCH(request: NextRequest) {
   if (mlb_player_id !== undefined) updates.mlb_player_id = mlb_player_id;
   if (mlb_team !== undefined) updates.mlb_team = mlb_team;
   if (mlb_player_name !== undefined) updates.mlb_player_name = mlb_player_name;
-  if (primary_position !== undefined) updates.primary_position = primary_position;
+  if (primary_position !== undefined) {
+    updates.primary_position = primary_position;
+    updates.is_pitcher = ["SP", "RP"].includes(primary_position);
+  }
 
   const { data, error } = await supabase
     .from("roster_players")
