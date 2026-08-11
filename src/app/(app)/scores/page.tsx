@@ -322,22 +322,23 @@ export default function ScoresPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Weekly Scores</h1>
-        <select
-          value={selectedTeamId}
-          onChange={(e) => setSelectedTeamId(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium"
-        >
-          {teams.map((t) => (
-            <option key={t.id} value={t.id}>{t.name}</option>
-          ))}
-        </select>
-      </div>
+      <h1 className="text-3xl font-bold">Weekly Scores</h1>
 
-      {/* Date Range + Calculate */}
+      {/* Team + Date Range + Calculate — all in one control bar */}
       <div className="bg-white rounded-lg shadow p-4 space-y-3">
         <div className="flex items-end gap-4 flex-wrap">
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Team</label>
+            <select
+              value={selectedTeamId}
+              onChange={(e) => setSelectedTeamId(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium"
+            >
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="block text-xs text-gray-500 mb-1">Start Date</label>
             <input
@@ -357,8 +358,8 @@ export default function ScoresPage() {
             />
           </div>
           <div className="flex gap-1">
-            <button onClick={() => setWeekFromOffset(-1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">Prev Week</button>
-            <button onClick={() => setWeekFromOffset(1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">Next Week</button>
+            <button onClick={() => setWeekFromOffset(-1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">← Prev</button>
+            <button onClick={() => setWeekFromOffset(1)} className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 text-sm">Next →</button>
           </div>
           <label className="flex items-center gap-2 text-sm text-gray-600">
             <input
@@ -367,7 +368,7 @@ export default function ScoresPage() {
               onChange={(e) => setShortWeek(e.target.checked)}
               className="rounded border-gray-300"
             />
-            Short week (no thresholds)
+            Short week
           </label>
           <button
             onClick={calculateScores}
@@ -400,8 +401,10 @@ export default function ScoresPage() {
         </div>
       )}
 
-      {/* Weekly Forecast - for NEXT week */}
-      <ForecastPanel teamId={selectedTeamId} currentStartDate={startDate} />
+      {/* Weekly Forecast — only show for current or future weeks */}
+      {endDate >= fmt(getMonday(new Date())) && (
+        <ForecastPanel teamId={selectedTeamId} currentStartDate={startDate} />
+      )}
 
       {/* Lineup Slots Visual */}
       <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} activatedPositions={activatedPositions} />
@@ -410,9 +413,12 @@ export default function ScoresPage() {
       {lineupLoaded && (
         <div className="bg-white rounded-lg shadow">
           <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-3">
-              <span className="font-semibold text-sm">Lineup</span>
-              <span className="text-xs text-gray-400">{activePlayers.size} active · {allPlayers.length - activePlayers.size} bench</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-semibold text-sm">{selectedTeam?.name}</span>
+              <span className="text-gray-300 text-xs">·</span>
+              <span className="text-xs text-gray-500">{startDate} – {endDate}</span>
+              <span className="text-gray-300 text-xs">·</span>
+              <span className="text-xs text-gray-400">{activePlayers.size} active / {allPlayers.length} total</span>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <button
@@ -431,8 +437,6 @@ export default function ScoresPage() {
               >
                 {savingLineup ? "Saving..." : lineupSaved ? "✓ Saved" : "Save lineup"}
               </button>
-              <span className="text-gray-300">·</span>
-              <a href="/roster" className="text-gray-400 underline hover:text-gray-600">Edit roster →</a>
             </div>
           </div>
 
