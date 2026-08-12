@@ -103,7 +103,9 @@ export default function ScoresPage() {
     setLineupLoaded(false);
     setWeekResult(null);
 
-    fetch(`/api/roster/lineup?team_id=${selectedTeamId}&start_date=${startDate}&end_date=${endDate}`)
+    const controller = new AbortController();
+
+    fetch(`/api/roster/lineup?team_id=${selectedTeamId}&start_date=${startDate}&end_date=${endDate}`, { signal: controller.signal })
       .then((r) => r.json())
       .then((data) => {
         const players: { roster_player_id: string; activated_position: string }[] = data.players || [];
@@ -119,11 +121,14 @@ export default function ScoresPage() {
         }
         setLineupLoaded(true);
       })
-      .catch(() => {
+      .catch((err) => {
+        if (err.name === "AbortError") return;
         setActivePlayers(new Set(team.roster_players.map((p) => p.id)));
         setActivatedPositions(new Map(team.roster_players.map((p) => [p.id, p.primary_position])));
         setLineupLoaded(true);
       });
+
+    return () => controller.abort();
   }, [selectedTeamId, startDate, endDate, teams]);
 
   const selectedTeam = teams.find((t) => t.id === selectedTeamId);
@@ -406,25 +411,28 @@ export default function ScoresPage() {
         <ForecastPanel teamId={selectedTeamId} currentStartDate={startDate} />
       )}
 
-      {/* Lineup Slots Visual */}
-      <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} activatedPositions={activatedPositions} />
-
-      {/* Lineup Editor — always visible once lineup is loaded */}
-      {lineupLoaded && (
-        <div className="bg-white rounded-lg shadow">
-          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-sm">{selectedTeam?.name}</span>
-              <span className="text-gray-300 text-xs">·</span>
-              <span className="text-xs text-gray-500">{startDate} – {endDate}</span>
-              <span className="text-gray-300 text-xs">·</span>
-              <span className="text-xs text-gray-400">{activePlayers.size} active / {allPlayers.length} total</span>
-            </div>
+      {/* Lineup Editor */}
+      <div className="bg-white rounded-lg shadow">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-sm">{selectedTeam?.name || "Lineup"}</span>
+            {startDate && endDate && (
+              <>
+                <span className="text-gray-300 text-xs">·</span>
+                <span className="text-xs text-gray-500">{startDate} – {endDate}</span>
+              </>
+            )}
+            {lineupLoaded && (
+              <>
+                <span className="text-gray-300 text-xs">·</span>
+                <span className="text-xs text-gray-400">{activePlayers.size} active / {allPlayers.length} total</span>
+              </>
+            )}
+          </div>
+          {lineupLoaded && (
             <div className="flex items-center gap-3 text-xs">
               <button
-                onClick={() => {
-                  setActivePlayers(new Set(allPlayers.map((p) => p.id)));
-                }}
+                onClick={() => setActivePlayers(new Set(allPlayers.map((p) => p.id)))}
                 className="text-blue-600 underline hover:text-blue-800"
               >
                 Set all active
@@ -438,8 +446,12 @@ export default function ScoresPage() {
                 {savingLineup ? "Saving..." : lineupSaved ? "✓ Saved" : "Save lineup"}
               </button>
             </div>
-          </div>
+          )}
+        </div>
 
+        {!lineupLoaded ? (
+          <div className="px-4 py-6 text-sm text-gray-400 text-center">Loading lineup…</div>
+        ) : (
           <div className="px-4 py-3 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
             {/* Batters */}
             <div>
@@ -448,7 +460,6 @@ export default function ScoresPage() {
                 {batters.map((p) => {
                   const isActive = activePlayers.has(p.id);
                   const activatedPos = getActivatedPosition(p.id, p.primary_position);
-                  // Position options: primary + UTIL + DH (skip if already that)
                   const posOptions = Array.from(new Set([p.primary_position, "UTIL", "DH"]));
                   return (
                     <div key={p.id} className={`flex items-center gap-2 ${!isActive ? "opacity-40" : ""}`}>
@@ -473,6 +484,7 @@ export default function ScoresPage() {
                     </div>
                   );
                 })}
+                {batters.length === 0 && <p className="text-xs text-gray-400">No batters on roster</p>}
               </div>
             </div>
 
@@ -498,11 +510,15 @@ export default function ScoresPage() {
                     </div>
                   );
                 })}
+                {pitchers.length === 0 && <p className="text-xs text-gray-400">No pitchers on roster</p>}
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Lineup Slots Visual */}
+      <SlotsBar allPlayers={allPlayers} activePlayers={activePlayers} activatedPositions={activatedPositions} />
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-700">{error}</div>
